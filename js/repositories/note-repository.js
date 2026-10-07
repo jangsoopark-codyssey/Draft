@@ -35,7 +35,6 @@ export function createNote() {
         id: crypto.randomUUID(),
         title: "Untitled",
         content: "",
-        mode: "plain",
         pinned: false,
         deleted: false,
         createdAt: now,

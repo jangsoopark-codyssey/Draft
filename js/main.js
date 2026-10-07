@@ -42,10 +42,10 @@ function richTextToPlainText(html) {
 }
 
 function getNotePlainText(note) {
-    if (note.mode === "rich") {
-        return richTextToPlainText(note.content);
+    if (note.mode === "plain") {
+        return note.content;
     }
-    return note.content;
+    return richTextToPlainText(note.content);
 }
 
 function getNotePreview(note) {
@@ -85,6 +85,35 @@ function unwrapElement(element) {
     element.remove();
 }
 
+function unwrapElementAndRestoreSelection(element, range, selection, editor) {
+    const startMarker = document.createElement("span");
+    const endMarker = document.createElement("span");
+
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    endRange.insertNode(endMarker);
+
+    const startRange = range.cloneRange();
+    startRange.collapse(true);
+    startRange.insertNode(startMarker);
+
+    unwrapElement(element);
+
+    const newRange = document.createRange();
+    newRange.setStartAfter(startMarker);
+    newRange.setEndBefore(endMarker);
+
+    editor.focus();
+
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    startMarker.remove();
+    endMarker.remove();
+
+    editor.normalize();
+}
+
 function toggleInlineFormatting(tagName) {
     const editor = document.querySelector("#note-content.editor-rich");
     if (!editor) {
@@ -101,12 +130,13 @@ function toggleInlineFormatting(tagName) {
     const startElement = findClosestTag(range.startContainer, editor, tagName);
     const endElement = findClosestTag(range.endContainer, editor, tagName);
     if (startElement && startElement === endElement) {
-        unwrapElement(startElement);
-        editor.normalize();
+        unwrapElementAndRestoreSelection(startElement, range, selection, editor);
         return;
     }
+
     const wrapper = document.createElement(tagName);
     const selectedContent = range.extractContents();
+    
     wrapper.append(selectedContent);
     range.insertNode(wrapper);
     selection.removeAllRanges();
@@ -324,6 +354,7 @@ function renderNoteList() {
 
 function renderEditor() {
     const editorPanel = document.querySelector("#editor-panel");
+
     if (!selectedNoteId) {
         editorPanel.innerHTML = `
             <div class="editor-empty">
@@ -332,7 +363,9 @@ function renderEditor() {
         `;
         return;
     }
+
     const note = getNoteById(selectedNoteId);
+
     if (!note) {
         selectedNoteId = null;
         editorPanel.innerHTML = `
@@ -342,8 +375,9 @@ function renderEditor() {
         `;
         return;
     }
+
     const isTrashView = currentView === "trash";
-    const noteMode = note.mode ?? "plain";
+
     editorPanel.innerHTML = `
         <div class="editor-content">
             <header class="editor-header">
@@ -394,42 +428,16 @@ function renderEditor() {
                     }
                 </div>
             </header>
-            <div class="editor-mode">
-                <button
-                    type="button"
-                    class="editor-mode__button ${
-                        noteMode === "plain"
-                            ? "editor-mode__button--active"
-                            : ""
-                    }"
-                    data-editor-mode="plain"
-                    ${isTrashView ? "disabled" : ""}
-                >
-                    Plain Text
-                </button>
-                <button
-                    type="button"
-                    class="editor-mode__button ${
-                        noteMode === "rich"
-                            ? "editor-mode__button--active"
-                            : ""
-                    }"
-                    data-editor-mode="rich"
-                    ${isTrashView ? "disabled" : ""}
-                >
-                    Rich Text
-                </button>
-            </div>
             ${
-                noteMode === "rich"
-                    ? `
+                isTrashView
+                    ? ""
+                    : `
                         <div class="editor-toolbar">
                             <button
                                 type="button"
                                 class="editor-toolbar__button"
                                 data-format="bold"
                                 aria-label="Bold"
-                                ${isTrashView ? "disabled" : ""}
                             >
                                 <strong>B</strong>
                             </button>
@@ -438,47 +446,30 @@ function renderEditor() {
                                 class="editor-toolbar__button"
                                 data-format="italic"
                                 aria-label="Italic"
-                                ${isTrashView ? "disabled" : ""}
                             >
                                 <em>I</em>
                             </button>
                         </div>
                     `
-                    : ""
             }
-            ${
-                noteMode === "plain"
-                    ? `
-                        <textarea
-                            id="note-content"
-                            class="editor-textarea"
-                            placeholder="Start writing..."
-                            aria-label="Note content"
-                            ${isTrashView ? "readonly" : ""}
-                        ></textarea>
-                    `
-                    : `
-                        <div
-                            id="note-content"
-                            class="editor-rich"
-                            contenteditable="${isTrashView ? "false" : "true"}"
-                            role="textbox"
-                            aria-multiline="true"
-                            aria-label="Note content"
-                            data-placeholder="Start writing..."
-                        ></div>
-                    `
-            }
+            <div
+                id="note-content"
+                class="editor-rich"
+                contenteditable="${isTrashView ? "false" : "true"}"
+                role="textbox"
+                aria-multiline="true"
+                aria-label="Note content"
+                data-placeholder="Start writing..."
+            ></div>
         </div>
     `;
+
     const titleInput = document.querySelector("#note-title");
     const contentInput = document.querySelector("#note-content");
+    const editorContent = note.mode === "plain" ? plainTextToHtml(note.content) : note.content;
+
     titleInput.value = note.title;
-    if (noteMode === "rich") {
-        contentInput.innerHTML = note.content;
-    } else {
-        contentInput.value = note.content;
-    }
+    contentInput.innerHTML = editorContent;
 }
 
 function renderRoute() {
@@ -564,10 +555,10 @@ function init() {
         }
         const titleInput = document.querySelector("#note-title");
         const contentInput = document.querySelector("#note-content");
-        const content = note.mode === "rich" ? contentInput.innerHTML : contentInput.value;
         updateNote(selectedNoteId, {
             title: titleInput.value,
-            content,
+            content: contentInput.innerHTML,
+            mode: undefined,
         });
         renderNoteList();
     });
@@ -575,46 +566,14 @@ function init() {
         if (!selectedNoteId) {
             return;
         }
-        const modeButton = event.target.closest("[data-editor-mode]");
         const pinButton = event.target.closest("#toggle-pin-button");
         const trashButton = event.target.closest("#trash-note-button");
         const restoreButton = event.target.closest("#restore-note-button");
         const deleteButton = event.target.closest("#delete-note-button");
         const formatButton = event.target.closest("[data-format]");
-        if (modeButton) {
-            const note = getNoteById(selectedNoteId);
-            if (!note || currentView === "trash") {
-                return;
-            }
-            const nextMode = modeButton.dataset.editorMode;
-            const currentMode = note.mode ?? "plain";
-            if (nextMode === currentMode) {
-                return;
-            }
-            if (nextMode === "rich") {
-                updateNote(selectedNoteId, {
-                    mode: "rich",
-                    content: plainTextToHtml(note.content),
-                });
-                renderNoteList();
-                renderEditor();
-                return;
-            }
-            const confirmed = window.confirm("Convert to Plain Text? All formatting will be removed.");
-            if (!confirmed) {
-                return;
-            }
-            updateNote(selectedNoteId, {
-                mode: "plain",
-                content: richTextToPlainText(note.content),
-            });
-            renderNoteList();
-            renderEditor();
-            return;
-        }
         if (formatButton) {
             const note = getNoteById(selectedNoteId);
-            if (!note || note.mode !== "rich" || currentView === "trash") {
+            if (!note || currentView === "trash") {
                 return;
             }
             const format = formatButton.dataset.format;
@@ -626,6 +585,7 @@ function init() {
             const contentInput = document.querySelector("#note-content");
             updateNote(selectedNoteId, {
                 content: contentInput.innerHTML,
+                mode: undefined,
             });
             renderNoteList();
             return;
