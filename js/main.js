@@ -22,104 +22,126 @@ let searchQuery = "";
 function escapeHtml(value) {
     const element = document.createElement("div");
     element.textContent = value;
-
     return element.innerHTML;
 }
 
 function plainTextToHtml(text) {
-    return escapeHtml(text)
-        .replace(/\n/g, "<br>");
+    return escapeHtml(text).replace(/\n/g, "<br>");
 }
 
 function richTextToPlainText(html) {
-    const container =
-        document.createElement("div");
-
+    const container = document.createElement("div");
     container.innerHTML = html;
-
-    container
-        .querySelectorAll("br")
-        .forEach((element) => {
-            element.replaceWith("\n");
-        });
-
-    container
-        .querySelectorAll("p, div, li")
-        .forEach((element) => {
-            element.append("\n");
-        });
-
-    return container.textContent
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
+    container.querySelectorAll("br").forEach((element) => {
+        element.replaceWith("\n");
+    });
+    container.querySelectorAll("p, div, li").forEach((element) => {
+        element.append("\n");
+    });
+    return container.textContent.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function getNotePlainText(note) {
     if (note.mode === "rich") {
-        return richTextToPlainText(
-            note.content,
-        );
+        return richTextToPlainText(note.content);
     }
-
     return note.content;
 }
 
 function getNotePreview(note) {
-    const normalizedContent = getNotePlainText(note)
-        .replace(/\s+/g, " ")
-        .trim();
-
+    const normalizedContent = getNotePlainText(note).replace(/\s+/g, " ").trim();
     if (!normalizedContent) {
         return "No additional text";
     }
-
     const maxLength = 60;
-
     if (normalizedContent.length <= maxLength) {
         return normalizedContent;
     }
-
     return `${normalizedContent.slice(0, maxLength)}...`;
+}
+
+const INLINE_FORMAT_TAGS = {
+    bold: "strong",
+    italic: "em",
+};
+
+function findClosestTag(node, editor, tagName) {
+    let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    const normalizedTagName = tagName.toUpperCase();
+    while (element && element !== editor) {
+        if (element.tagName === normalizedTagName) {
+            return element;
+        }
+        element = element.parentElement;
+    }
+    return null;
+}
+
+function unwrapElement(element) {
+    const parent = element.parentNode;
+    while (element.firstChild) {
+        parent.insertBefore(element.firstChild, element);
+    }
+    element.remove();
+}
+
+function toggleInlineFormatting(tagName) {
+    const editor = document.querySelector("#note-content.editor-rich");
+    if (!editor) {
+        return;
+    }
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) {
+        return;
+    }
+    const startElement = findClosestTag(range.startContainer, editor, tagName);
+    const endElement = findClosestTag(range.endContainer, editor, tagName);
+    if (startElement && startElement === endElement) {
+        unwrapElement(startElement);
+        editor.normalize();
+        return;
+    }
+    const wrapper = document.createElement(tagName);
+    const selectedContent = range.extractContents();
+    wrapper.append(selectedContent);
+    range.insertNode(wrapper);
+    selection.removeAllRanges();
+    const newRange = document.createRange();
+    newRange.selectNodeContents(wrapper);
+    selection.addRange(newRange);
 }
 
 function formatUpdatedAt(updatedAt) {
     const updatedDate = new Date(updatedAt);
     const now = new Date();
-
     const diffMilliseconds = now.getTime() - updatedDate.getTime();
-
     const diffMinutes = Math.floor(diffMilliseconds / 1000 / 60);
-
     if (diffMinutes < 1) {
         return "Just now";
     }
-
     if (diffMinutes < 60) {
         return `${diffMinutes} min ago`;
     }
-
     const diffHours = Math.floor(diffMinutes / 60);
-
     if (diffHours < 24) {
         return `${diffHours} hr ago`;
     }
-
     return updatedDate.toLocaleDateString();
 }
 
 function syncStateWithRoute() {
     const route = getCurrentRoute();
-
     if (route.notFound) {
         currentView = null;
         selectedNoteId = null;
-
         return false;
     }
-
     currentView = route.view;
     selectedNoteId = route.noteId;
-
     return true;
 }
 
@@ -127,34 +149,22 @@ function normalizeSelectedNoteRoute() {
     if (!selectedNoteId) {
         return true;
     }
-
     const note = getNoteById(selectedNoteId);
-
     if (!note) {
         return true;
     }
-
     if (note.deleted && currentView !== "trash") {
         navigate("trash", note.id);
-
         return false;
     }
-
     if (!note.deleted && currentView === "trash") {
         navigate("all", note.id);
-
         return false;
     }
-
-    if (
-        currentView === "pinned"
-        && !note.pinned
-    ) {
+    if (currentView === "pinned" && !note.pinned) {
         navigate("all", note.id);
-
         return false;
     }
-
     return true;
 }
 
@@ -163,7 +173,6 @@ function renderApp() {
         <div class="app-layout">
             <aside class="sidebar">
                 <h1 class="logo">Draft</h1>
-
                 <nav class="sidebar-nav">
                     <button
                         type="button"
@@ -172,7 +181,6 @@ function renderApp() {
                     >
                         All Notes
                     </button>
-
                     <button
                         type="button"
                         class="sidebar-nav__item"
@@ -180,7 +188,6 @@ function renderApp() {
                     >
                         Pinned
                     </button>
-
                     <button
                         type="button"
                         class="sidebar-nav__item"
@@ -189,7 +196,6 @@ function renderApp() {
                         Trash
                     </button>
                 </nav>
-
                 <button
                     id="new-note-button"
                     type="button"
@@ -198,12 +204,10 @@ function renderApp() {
                     + New Note
                 </button>
             </aside>
-
             <section class="note-list-panel">
                 <header class="note-list-header">
                     <h2 id="note-list-title">Notes</h2>
                 </header>
-
                 <div class="note-search">
                     <input
                         id="note-search"
@@ -213,14 +217,12 @@ function renderApp() {
                         value="${escapeHtml(searchQuery)}"
                     >
                 </div>
-
                 <div
                     id="note-list"
                     class="note-list"
                 ></div>
             </section>
-
-            <main 
+            <main
                 id="editor-panel"
                 class="editor-panel"
             >
@@ -233,109 +235,69 @@ function renderApp() {
 }
 
 function renderNavigation() {
-    const navigationItems =
-        document.querySelectorAll("[data-view]");
-
+    const navigationItems = document.querySelectorAll("[data-view]");
     navigationItems.forEach((item) => {
         const isActive = item.dataset.view === currentView;
-
-        item.classList.toggle(
-            "sidebar-nav__item--active",
-            isActive,
-        );
+        item.classList.toggle("sidebar-nav__item--active", isActive);
     });
-
     if (!currentView) {
         return;
     }
-
     const noteListTitle = document.querySelector("#note-list-title");
-
     const titles = {
         all: "Notes",
         pinned: "Pinned",
         trash: "Trash",
     };
-
     noteListTitle.textContent = titles[currentView];
 }
 
 function renderNoteList() {
     const noteList = document.querySelector("#note-list");
-
     let notes = getAllNotes();
-
     if (currentView === "all") {
-        notes = notes.filter(
-            (note) => !note.deleted,
-        );
+        notes = notes.filter((note) => !note.deleted);
     }
-
     if (currentView === "pinned") {
-        notes = notes.filter(
-            (note) =>
-                !note.deleted
-                && note.pinned,
-        );
+        notes = notes.filter((note) => !note.deleted && note.pinned);
     }
-
     if (currentView === "trash") {
-        notes = notes.filter(
-            (note) => note.deleted,
-        );
+        notes = notes.filter((note) => note.deleted);
     }
-
     const normalizedQuery = searchQuery.trim().toLowerCase();
-
     if (normalizedQuery) {
         notes = notes.filter((note) => {
             const title = note.title.toLowerCase();
             const content = getNotePlainText(note).toLowerCase();
-
-            return (
-                title.includes(normalizedQuery)
-                || content.includes(normalizedQuery)
-            );
+            return title.includes(normalizedQuery) || content.includes(normalizedQuery);
         });
     }
-
     notes.sort((a, b) => {
         if (a.pinned !== b.pinned) {
             return Number(b.pinned) - Number(a.pinned);
         }
-
-        return new Date(b.updatedAt)
-            - new Date(a.updatedAt);
+        return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
-
     if (notes.length === 0) {
         const emptyMessages = {
             all: "No notes yet.",
             pinned: "No pinned notes.",
             trash: "Trash is empty.",
         };
-
-        const message =
-            searchQuery.trim()
-                ? "No matching notes."
-                : emptyMessages[currentView];
-
+        const message = searchQuery.trim() ? "No matching notes." : emptyMessages[currentView];
         noteList.innerHTML = `
             <p class="empty-message">
                 ${message}
             </p>
         `;
-
         return;
     }
-
     noteList.innerHTML = notes
         .map((note) => {
             const isSelected = note.id === selectedNoteId;
             const displayTitle = note.title.trim() || "Untitled";
             const preview = getNotePreview(note);
             const updatedAt = formatUpdatedAt(note.updatedAt);
-
             return `
                 <button
                     type="button"
@@ -345,7 +307,6 @@ function renderNoteList() {
                     <div class="note-item__header">
                         <div class="note-item__title-wrap">
                             ${note.pinned ? '<span class="note-item__pin" aria-label="Pinned">●</span>' : ""}
-
                             <strong class="note-item__title">
                                 ${escapeHtml(displayTitle)}
                             </strong>
@@ -354,7 +315,6 @@ function renderNoteList() {
                             ${escapeHtml(updatedAt)}
                         </span>
                     </div>
-                    
                     <p class="note-item__preview">${escapeHtml(preview)}</p>
                 </button>
             `;
@@ -364,33 +324,26 @@ function renderNoteList() {
 
 function renderEditor() {
     const editorPanel = document.querySelector("#editor-panel");
-
     if (!selectedNoteId) {
         editorPanel.innerHTML = `
             <div class="editor-empty">
                 <p>Select or create a note.</p>
             </div>
         `;
-
         return;
     }
-
     const note = getNoteById(selectedNoteId);
-
     if (!note) {
         selectedNoteId = null;
-
         editorPanel.innerHTML = `
             <div class="editor-empty">
                 <p>Note not found.</p>
             </div>
         `;
-
         return;
     }
     const isTrashView = currentView === "trash";
     const noteMode = note.mode ?? "plain";
-
     editorPanel.innerHTML = `
         <div class="editor-content">
             <header class="editor-header">
@@ -402,7 +355,6 @@ function renderEditor() {
                     aria-label="Note title"
                     ${isTrashView ? "readonly" : ""}
                 >
-
                 <div class="editor-actions">
                     ${
                         isTrashView
@@ -414,7 +366,6 @@ function renderEditor() {
                                 >
                                     Restore
                                 </button>
-
                                 <button
                                     id="delete-note-button"
                                     class="editor-action-button editor-action-button--danger"
@@ -432,7 +383,6 @@ function renderEditor() {
                                 >
                                     ${note.pinned ? "Unpin" : "Pin"}
                                 </button>
-
                                 <button
                                     id="trash-note-button"
                                     class="editor-action-button"
@@ -444,7 +394,6 @@ function renderEditor() {
                     }
                 </div>
             </header>
-
             <div class="editor-mode">
                 <button
                     type="button"
@@ -458,7 +407,6 @@ function renderEditor() {
                 >
                     Plain Text
                 </button>
-
                 <button
                     type="button"
                     class="editor-mode__button ${
@@ -472,7 +420,32 @@ function renderEditor() {
                     Rich Text
                 </button>
             </div>
-
+            ${
+                noteMode === "rich"
+                    ? `
+                        <div class="editor-toolbar">
+                            <button
+                                type="button"
+                                class="editor-toolbar__button"
+                                data-format="bold"
+                                aria-label="Bold"
+                                ${isTrashView ? "disabled" : ""}
+                            >
+                                <strong>B</strong>
+                            </button>
+                            <button
+                                type="button"
+                                class="editor-toolbar__button"
+                                data-format="italic"
+                                aria-label="Italic"
+                                ${isTrashView ? "disabled" : ""}
+                            >
+                                <em>I</em>
+                            </button>
+                        </div>
+                    `
+                    : ""
+            }
             ${
                 noteMode === "plain"
                     ? `
@@ -498,12 +471,9 @@ function renderEditor() {
             }
         </div>
     `;
-
     const titleInput = document.querySelector("#note-title");
     const contentInput = document.querySelector("#note-content");
-
     titleInput.value = note.title;
-
     if (noteMode === "rich") {
         contentInput.innerHTML = note.content;
     } else {
@@ -513,44 +483,29 @@ function renderEditor() {
 
 function renderRoute() {
     const routeExists = syncStateWithRoute();
-
     renderNavigation();
-
     if (!routeExists) {
         renderNotFound();
-
         return;
     }
-
     const routeIsValid = normalizeSelectedNoteRoute();
-
     if (!routeIsValid) {
         return;
     }
-
     renderNoteList();
     renderEditor();
 }
 
 function renderNotFound() {
-    const noteListTitle =
-        document.querySelector("#note-list-title");
-
-    const noteList =
-        document.querySelector("#note-list");
-
-    const editorPanel =
-        document.querySelector("#editor-panel");
-
-    noteListTitle.textContent =
-        "Not Found";
-
+    const noteListTitle = document.querySelector("#note-list-title");
+    const noteList = document.querySelector("#note-list");
+    const editorPanel = document.querySelector("#editor-panel");
+    noteListTitle.textContent = "Not Found";
     noteList.innerHTML = `
         <p class="empty-message">
             The requested page does not exist.
         </p>
     `;
-
     editorPanel.innerHTML = `
         <div class="editor-empty">
             <p>Page not found.</p>
@@ -562,224 +517,160 @@ function init() {
     renderApp();
     ensureDefaultRoute();
     renderRoute();
-
     const newNoteButton = document.querySelector("#new-note-button");
-
     const sidebarNavigation = document.querySelector(".sidebar-nav");
     const noteSearch = document.querySelector("#note-search");
     const noteList = document.querySelector("#note-list");
     const editorPanel = document.querySelector("#editor-panel");
-
-    window.addEventListener(
-        "hashchange",
-        () => {
-            renderRoute();
-        },
-    );
-
+    window.addEventListener("hashchange", () => {
+        renderRoute();
+    });
     newNoteButton.addEventListener("click", () => {
         const note = createNote();
-
-        navigate(
-            "all",
-            note.id,
-        );
+        navigate("all", note.id);
     });
-
-    sidebarNavigation.addEventListener(
-        "click",
-        (event) => {
-            const navigationItem =
-                event.target.closest("[data-view]");
-
-            if (!navigationItem) {
-                return;
-            }
-
-            navigate(
-                navigationItem.dataset.view,
-            );
-        },
-    );
-
-    noteSearch.addEventListener(
-        "input",
-        (event) => {
-            searchQuery = event.target.value;
-
-            if (selectedNoteId) {
-                navigate(currentView);
-                return;
-            }
-
-            renderNoteList();
-        },
-    );
-
+    sidebarNavigation.addEventListener("click", (event) => {
+        const navigationItem = event.target.closest("[data-view]");
+        if (!navigationItem) {
+            return;
+        }
+        navigate(navigationItem.dataset.view);
+    });
+    noteSearch.addEventListener("input", (event) => {
+        searchQuery = event.target.value;
+        if (selectedNoteId) {
+            navigate(currentView);
+            return;
+        }
+        renderNoteList();
+    });
     noteList.addEventListener("click", (event) => {
         const noteItem = event.target.closest(".note-item");
-
         if (!noteItem) {
             return;
         }
-
-        navigate(
-            currentView,
-            noteItem.dataset.noteId,
-        );
+        navigate(currentView, noteItem.dataset.noteId);
     });
-
     editorPanel.addEventListener("input", (event) => {
         if (!selectedNoteId || currentView === "trash") {
             return;
         }
-
-        if (
-            event.target.id !== "note-title"
-            && event.target.id !== "note-content"
-        ) {
+        if (event.target.id !== "note-title" && event.target.id !== "note-content") {
             return;
         }
-
         const note = getNoteById(selectedNoteId);
         if (!note) {
             return;
         }
-
         const titleInput = document.querySelector("#note-title");
-
         const contentInput = document.querySelector("#note-content");
-
-        const content =
-            note.mode === "rich"
-                ? contentInput.innerHTML
-                : contentInput.value;
-
+        const content = note.mode === "rich" ? contentInput.innerHTML : contentInput.value;
         updateNote(selectedNoteId, {
             title: titleInput.value,
             content,
         });
-
-        renderNoteList();
         renderNoteList();
     });
-
     editorPanel.addEventListener("click", (event) => {
         if (!selectedNoteId) {
             return;
         }
-
         const modeButton = event.target.closest("[data-editor-mode]");
         const pinButton = event.target.closest("#toggle-pin-button");
         const trashButton = event.target.closest("#trash-note-button");
         const restoreButton = event.target.closest("#restore-note-button");
         const deleteButton = event.target.closest("#delete-note-button");
-
+        const formatButton = event.target.closest("[data-format]");
         if (modeButton) {
-            const note =
-                getNoteById(selectedNoteId);
-
+            const note = getNoteById(selectedNoteId);
             if (!note || currentView === "trash") {
                 return;
             }
-
-            const nextMode =
-                modeButton.dataset.editorMode;
-
-            if (nextMode === note.mode) {
+            const nextMode = modeButton.dataset.editorMode;
+            const currentMode = note.mode ?? "plain";
+            if (nextMode === currentMode) {
                 return;
             }
-
             if (nextMode === "rich") {
                 updateNote(selectedNoteId, {
                     mode: "rich",
-                    content: plainTextToHtml(
-                        note.content,
-                    ),
+                    content: plainTextToHtml(note.content),
                 });
-
                 renderNoteList();
                 renderEditor();
-
                 return;
             }
-
-            const confirmed =
-                window.confirm(
-                    "Convert to Plain Text? All formatting will be removed.",
-                );
-
+            const confirmed = window.confirm("Convert to Plain Text? All formatting will be removed.");
             if (!confirmed) {
                 return;
             }
-
             updateNote(selectedNoteId, {
                 mode: "plain",
-                content: richTextToPlainText(
-                    note.content,
-                ),
+                content: richTextToPlainText(note.content),
             });
-
             renderNoteList();
             renderEditor();
-
             return;
         }
-
+        if (formatButton) {
+            const note = getNoteById(selectedNoteId);
+            if (!note || note.mode !== "rich" || currentView === "trash") {
+                return;
+            }
+            const format = formatButton.dataset.format;
+            const tagName = INLINE_FORMAT_TAGS[format];
+            if (!tagName) {
+                return;
+            }
+            toggleInlineFormatting(tagName);
+            const contentInput = document.querySelector("#note-content");
+            updateNote(selectedNoteId, {
+                content: contentInput.innerHTML,
+            });
+            renderNoteList();
+            return;
+        }
         if (pinButton) {
             const note = getNoteById(selectedNoteId);
             if (!note) {
                 return;
             }
-
             const willBePinned = !note.pinned;
-
             updateNote(selectedNoteId, {
                 pinned: willBePinned,
             });
-
-            if (
-                currentView === "pinned"
-                && !willBePinned
-            ) {
+            if (currentView === "pinned" && !willBePinned) {
                 navigate("pinned");
-
                 return;
             }
-
             renderNoteList();
             renderEditor();
-
             return;
         }
-
         if (trashButton) {
             moveNoteToTrash(selectedNoteId);
-
             navigate(currentView);
-
             return;
         }
-
         if (restoreButton) {
             restoreNote(selectedNoteId);
-
             navigate("trash");
         }
-
         if (deleteButton) {
-            const confirmed = window.confirm(
-                "Delete this note permanently? This action cannot be undone.",
-            );
-
+            const confirmed = window.confirm("Delete this note permanently? This action cannot be undone.");
             if (!confirmed) {
                 return;
             }
-
             deleteNotePermanently(selectedNoteId);
-
             navigate("trash");
         }
+    });
+    editorPanel.addEventListener("mousedown", (event) => {
+        const formatButton = event.target.closest("[data-format]");
+        if (!formatButton) {
+            return;
+        }
+        event.preventDefault();
     });
 }
 
