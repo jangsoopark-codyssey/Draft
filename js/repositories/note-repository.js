@@ -48,3 +48,10 @@ export function createNote() {
 
     return note;
 }
+
+export function getNoteById(id) {
+    const notes = readNotes();
+
+    return notes.find((note) => note.id === id) ?? null;
+}
+

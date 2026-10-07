@@ -1,9 +1,11 @@
 import {
     createNote,
     getAllNotes,
+    getNoteById,
 } from "./repositories/note-repository.js";
 
 const app = document.querySelector("#app");
+let selectedNoteId = null;
 
 function renderApp() {
     app.innerHTML = `
@@ -45,7 +47,10 @@ function renderApp() {
                 ></div>
             </section>
 
-            <main class="editor-panel">
+            <main 
+                id="editor-panel"
+                class="editor-panel"
+            >
                 <div class="editor-empty">
                     <p>Select or create a note.</p>
                 </div>
@@ -72,10 +77,12 @@ function renderNoteList() {
 
     noteList.innerHTML = notes
         .map((note) => {
+            const isSelected = note.id === selectedNoteId;
+
             return `
                 <button
                     type="button"
-                    class="note-item"
+                    class="note-item ${isSelected ? "note-item--selected" : ""}"
                     data-note-id="${note.id}"
                 >
                     <strong>${note.title}</strong>
@@ -85,16 +92,97 @@ function renderNoteList() {
         .join("");
 }
 
+function renderEditor() {
+    const editorPanel = document.querySelector("#editor-panel");
+
+    if (!selectedNoteId) {
+        editorPanel.innerHTML = `
+            <div class="editor-empty">
+                <p>Select or create a note.</p>
+            </div>
+        `;
+
+        return;
+    }
+
+    const note = getNoteById(selectedNoteId);
+
+    if (!note) {
+        selectedNoteId = null;
+
+        editorPanel.innerHTML = `
+            <div class="editor-empty">
+                <p>Note not found.</p>
+            </div>
+        `;
+
+        return;
+    }
+
+    editorPanel.innerHTML = `
+        <div class="editor-content">
+            <header class="editor-header">
+                <input
+                    id="note-title"
+                    class="editor-title"
+                    type="text"
+                    aria-label="Note title"
+                    readonly
+                >
+            </header>
+
+            <textarea
+                id="note-content"
+                class="editor-textarea"
+                aria-label="Note content"
+                readonly
+            ></textarea>
+        </div>
+    `;
+
+    const titleInput =
+        document.querySelector("#note-title");
+
+    const contentInput =
+        document.querySelector("#note-content");
+
+    titleInput.value = note.title;
+    contentInput.value = note.content;
+}
+
 function init() {
     renderApp();
     renderNoteList();
+    renderEditor();
 
     const newNoteButton =
         document.querySelector("#new-note-button");
 
+    const noteList =
+        document.querySelector("#note-list");
+
     newNoteButton.addEventListener("click", () => {
-        createNote();
+        const note = createNote();
+
+        selectedNoteId = note.id;
+
         renderNoteList();
+        renderEditor();
+    });
+
+    noteList.addEventListener("click", (event) => {
+        const noteItem =
+            event.target.closest(".note-item");
+
+        if (!noteItem) {
+            return;
+        }
+
+        selectedNoteId =
+            noteItem.dataset.noteId;
+
+        renderNoteList();
+        renderEditor();
     });
 }
 
