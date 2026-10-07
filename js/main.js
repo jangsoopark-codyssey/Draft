@@ -69,6 +69,25 @@ function getNotePreview(note) {
 }
 
 
+async function copyNoteAsPlainText(noteId) {
+    const note = getNoteById(noteId);
+
+    if (!note) {
+        return false;
+    }
+
+    const plainText = getNotePlainText(note);
+
+    try {
+        await navigator.clipboard.writeText(plainText);
+        return true;
+    } catch (error) {
+        console.error("Failed to copy note as plain text:", error);
+        return false;
+    }
+}
+
+
 const INLINE_FORMAT_TAGS = {
     bold: "strong",
     italic: "em",
@@ -81,8 +100,8 @@ const BLOCK_FORMAT_TAGS = {
     h3: "h3",
 };
 
-const TEXT_BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3", "LI"]);
-const ROOT_BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3", "UL", "OL"]);
+const TEXT_BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3", "LI", "PRE", "BLOCKQUOTE"]);
+const ROOT_BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3", "UL", "OL", "PRE", "BLOCKQUOTE"]);
 
 function getRichEditor() {
     return document.querySelector("#note-content.editor-rich");
@@ -525,114 +544,76 @@ function toggleLinkFormatting() {
     return true;
 }
 
-const CLEAR_FORMAT_TAG_NAMES = new Set(["STRONG", "EM", "A"]);
+const CLEAR_BLOCK_SELECTOR = "p, div, h1, h2, h3, li, pre, blockquote";
 
-function findClosestClearFormatTag(node, editor) {
-    let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+function getSelectedClearBlocks(range, editor) {
+    if (range.collapsed) {
+        const block = findClosestBlock(range.startContainer, editor);
+        return block ? [block] : [];
+    }
+
+    const candidates = Array.from(
+        editor.querySelectorAll(CLEAR_BLOCK_SELECTOR),
+    ).filter((block) => {
+        try {
+            return range.intersectsNode(block);
+        } catch {
+            return false;
+        }
+    });
+
+    const leafBlocks = candidates.filter((block) => {
+        return !candidates.some((otherBlock) => {
+            return otherBlock !== block && block.contains(otherBlock);
+        });
+    });
+
+    return leafBlocks.map((block) => {
+        let element = block;
+
+        while (element && element !== editor) {
+            if (element.tagName === "PRE" || element.tagName === "BLOCKQUOTE") {
+                return element;
+            }
+
+            element = element.parentElement;
+        }
+
+        return block;
+    }).filter((block, index, blocks) => blocks.indexOf(block) === index);
+}
+
+function clearAncestorFormatting(block, editor) {
+    let element = block.parentElement;
 
     while (element && element !== editor) {
-        if (CLEAR_FORMAT_TAG_NAMES.has(element.tagName)) {
-            return element;
-        }
+        Array.from(element.attributes).forEach((attribute) => {
+            element.removeAttribute(attribute.name);
+        });
 
         element = element.parentElement;
     }
-
-    return null;
 }
 
-function splitInlineFormattingAtMarker(marker, editor) {
-    let element = findClosestClearFormatTag(marker, editor);
-
-    while (element) {
-        const parent = element.parentNode;
-        const afterRange = document.createRange();
-
-        afterRange.setStartAfter(marker);
-        afterRange.setEnd(element, element.childNodes.length);
-
-        const afterContent = afterRange.extractContents();
-        const afterElement = element.cloneNode(false);
-
-        afterElement.append(afterContent);
-        parent.insertBefore(marker, element.nextSibling);
-
-        if (afterElement.hasChildNodes()) {
-            parent.insertBefore(afterElement, marker.nextSibling);
-        }
-
-        element = findClosestClearFormatTag(marker, editor);
-    }
-}
-
-function removeSelectedInlineFormatting(range, editor) {
-    const selection = window.getSelection();
-    const startMarker = document.createComment("clear-start");
-    const endMarker = document.createComment("clear-end");
-
-    const endRange = range.cloneRange();
-    endRange.collapse(false);
-    endRange.insertNode(endMarker);
-
-    const startRange = range.cloneRange();
-    startRange.collapse(true);
-    startRange.insertNode(startMarker);
-
-    splitInlineFormattingAtMarker(startMarker, editor);
-    splitInlineFormattingAtMarker(endMarker, editor);
-
-    const selectedRange = document.createRange();
-    selectedRange.setStartAfter(startMarker);
-    selectedRange.setEndBefore(endMarker);
-
-    const formattedElements = Array.from(
-        editor.querySelectorAll("strong, em, a"),
-    )
-        .filter((element) => selectedRange.intersectsNode(element))
-        .reverse();
-
-    formattedElements.forEach((element) => unwrapElement(element));
-
-    const newRange = document.createRange();
-    newRange.setStartAfter(startMarker);
-    newRange.setEndBefore(endMarker);
-
-    selection.removeAllRanges();
-    selection.addRange(newRange);
-
-    startMarker.remove();
-    endMarker.remove();
-
-    editor.normalize();
-
-    if (selection.rangeCount > 0) {
-        savedEditorRange = selection.getRangeAt(0).cloneRange();
-    }
-
-    editor.focus();
-}
-
-function clearCurrentBlockFormatting(range, editor) {
-    let block = findClosestBlock(range.startContainer, editor);
-
-    if (!block) {
-        return false;
-    }
+function clearBlockFormatting(block, editor) {
+    clearAncestorFormatting(block, editor);
 
     const plainText = richTextToPlainText(block.innerHTML);
+    let paragraph;
 
     if (block.tagName === "LI") {
-        block = unwrapListItemToParagraph(block);
-    } else if (block.tagName !== "P") {
-        block = replaceElementTag(block, "p");
+        paragraph = unwrapListItemToParagraph(block);
+        paragraph.replaceChildren();
+    } else {
+        paragraph = document.createElement("p");
+        block.replaceWith(paragraph);
     }
 
-    block.innerHTML = plainText ? escapeHtml(plainText).replace(/\n/g, "<br>") : "<br>";
+    paragraph.innerHTML = plainText
+        ? escapeHtml(plainText).replace(/\n/g, "<br>")
+        : "<br>";
 
-    setSelectionToNodeContents(block, true);
-    editor.focus();
-
-    return true;
+    return paragraph;
 }
 
 function clearSelectedFormatting() {
@@ -648,11 +629,38 @@ function clearSelectedFormatting() {
         return false;
     }
 
-    if (range.collapsed) {
-        return clearCurrentBlockFormatting(range, editor);
+    const wasCollapsed = range.collapsed;
+    const blocks = getSelectedClearBlocks(range, editor);
+
+    if (blocks.length === 0) {
+        return false;
     }
 
-    removeSelectedInlineFormatting(range, editor);
+    const clearedBlocks = blocks.map((block) => clearBlockFormatting(block, editor));
+    const selection = window.getSelection();
+    const newRange = document.createRange();
+
+    if (wasCollapsed) {
+        const block = clearedBlocks[0];
+
+        newRange.selectNodeContents(block);
+        newRange.collapse(false);
+    } else {
+        const firstBlock = clearedBlocks[0];
+        const lastBlock = clearedBlocks[clearedBlocks.length - 1];
+
+        newRange.setStart(firstBlock, 0);
+        newRange.setEnd(lastBlock, lastBlock.childNodes.length);
+    }
+
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    savedEditorRange = newRange.cloneRange();
+
+    editor.normalize();
+    editor.focus();
+
     return true;
 }
 
@@ -980,6 +988,14 @@ function renderEditor() {
                     ${isTrashView ? "readonly" : ""}
                 >
                 <div class="editor-actions">
+                    <button
+                        id="copy-plain-text-button"
+                        class="editor-action-button"
+                        type="button"
+                        aria-label="Copy note as plain text"
+                    >
+                        Copy Plain
+                    </button>
                     ${
                         isTrashView
                             ? `
@@ -1251,7 +1267,7 @@ function init() {
         }
     });
 
-    editorPanel.addEventListener("click", (event) => {
+    editorPanel.addEventListener("click", async (event) => {
         if (!selectedNoteId) {
             return;
         }
@@ -1263,12 +1279,32 @@ function init() {
             return;
         }
 
+        const copyPlainTextButton = event.target.closest("#copy-plain-text-button");
         const pinButton = event.target.closest("#toggle-pin-button");
         const trashButton = event.target.closest("#trash-note-button");
         const restoreButton = event.target.closest("#restore-note-button");
         const deleteButton = event.target.closest("#delete-note-button");
         const formatButton = event.target.closest("[data-format]");
         const commandButton = event.target.closest("[data-command]");
+
+        if (copyPlainTextButton) {
+            const copied = await copyNoteAsPlainText(selectedNoteId);
+
+            if (!copied) {
+                window.alert("Could not copy the note as plain text.");
+                return;
+            }
+
+            copyPlainTextButton.textContent = "Copied";
+
+            window.setTimeout(() => {
+                if (document.contains(copyPlainTextButton)) {
+                    copyPlainTextButton.textContent = "Copy Plain";
+                }
+            }, 1200);
+
+            return;
+        }
 
         if (formatButton) {
             const note = getNoteById(selectedNoteId);
