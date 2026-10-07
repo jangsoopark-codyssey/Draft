@@ -90,8 +90,8 @@ button {
 }
 
 .new-note-button {
-    margin-top: auto;
-
+    width: 100%;
+    margin-bottom: var(--space-4);
     padding: 10px 12px;
 
     border: 0;
@@ -363,6 +363,7 @@ button {
 .editor-toolbar {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
 
     gap: var(--space-2);
 
@@ -417,3 +418,46 @@ button {
     cursor: default;
     opacity: 0.5;
 }
+
+.editor-toolbar__button--active {
+    background: var(--color-surface);
+
+    font-weight: 600;
+}
+
+.editor-toolbar__separator {
+    width: 1px;
+    height: 20px;
+
+    margin: 0 var(--space-1);
+
+    background: var(--color-border);
+}
+
+.editor-rich p {
+    margin: 0 0 var(--space-3);
+}
+
+.editor-rich h1,
+.editor-rich h2,
+.editor-rich h3 {
+    margin:
+        0
+        0
+        var(--space-3);
+}
+
+.editor-rich ul,
+.editor-rich ol {
+    margin:
+        0
+        0
+        var(--space-3);
+
+    padding-left: var(--space-6);
+}
+
+.editor-rich a {
+    text-decoration: underline;
+}
+

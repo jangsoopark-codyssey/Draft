@@ -1107,6 +1107,13 @@ function renderApp() {
         <div class="app-layout">
             <aside class="sidebar">
                 <h1 class="logo">Draft</h1>
+                <button
+                    id="new-note-button"
+                    type="button"
+                    class="new-note-button"
+                >
+                    + New Note
+                </button>
                 <nav class="sidebar-nav">
                     <button
                         type="button"
@@ -1130,13 +1137,6 @@ function renderApp() {
                         Trash
                     </button>
                 </nav>
-                <button
-                    id="new-note-button"
-                    type="button"
-                    class="new-note-button"
-                >
-                    + New Note
-                </button>
             </aside>
             <section class="note-list-panel">
                 <header class="note-list-header">
