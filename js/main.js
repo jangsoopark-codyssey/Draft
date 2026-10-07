@@ -10,6 +10,7 @@ import {
 const app = document.querySelector("#app");
 let selectedNoteId = null;
 let currentView = "all";
+let searchQuery = "";
 
 function escapeHtml(value) {
     const element = document.createElement("div");
@@ -110,9 +111,11 @@ function renderApp() {
 
                 <div class="note-search">
                     <input
+                        id="note-search"
                         type="search"
                         placeholder="Search notes..."
                         aria-label="Search notes"
+                        value="${escapeHtml(searchQuery)}"
                     >
                 </div>
 
@@ -164,7 +167,6 @@ function renderNavigation() {
 function renderNoteList() {
     const noteList = document.querySelector("#note-list");
 
-
     let notes = getAllNotes();
 
     if (currentView === "all") {
@@ -186,6 +188,21 @@ function renderNoteList() {
             (note) => note.deleted,
         );
     }
+
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    if (normalizedQuery) {
+        notes = notes.filter((note) => {
+            const title = note.title.toLowerCase();
+            const content = note.content.toLowerCase();
+
+            return (
+                title.includes(normalizedQuery)
+                || content.includes(normalizedQuery)
+            );
+        });
+    }
+
     notes.sort((a, b) => {
         if (a.pinned !== b.pinned) {
             return Number(b.pinned) - Number(a.pinned);
@@ -347,6 +364,7 @@ function init() {
     const newNoteButton = document.querySelector("#new-note-button");
 
     const sidebarNavigation = document.querySelector(".sidebar-nav");
+    const noteSearch = document.querySelector("#note-search");
     const noteList = document.querySelector("#note-list");
     const editorPanel = document.querySelector("#editor-panel");
 
@@ -379,6 +397,15 @@ function init() {
             renderEditor();
         },
     );
+
+    noteSearch.addEventListener("input", (event) => {
+        searchQuery = event.target.value;
+
+        selectedNoteId = null;
+
+        renderNoteList();
+        renderEditor();
+    });
 
     noteList.addEventListener("click", (event) => {
         const noteItem = event.target.closest(".note-item");
