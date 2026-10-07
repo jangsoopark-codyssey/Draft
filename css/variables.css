@@ -1,0 +1,34 @@
+:root {
+    /* Colors */
+    --color-bg: #ffffff;
+    --color-surface: #f7f7f5;
+    --color-surface-hover: #eeeeeb;
+
+    --color-text: #1f1f1d;
+    --color-text-muted: #777773;
+
+    --color-border: #deded9;
+
+    /* Layout */
+    --sidebar-width: 220px;
+    --note-list-width: 320px;
+
+    /* Spacing */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+
+    /* Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+
+    /* Typography */
+    --font-sans:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
