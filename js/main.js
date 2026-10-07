@@ -8,6 +8,12 @@ import {
     deleteNotePermanently,
 } from "./repositories/note-repository.js";
 
+import {
+    ensureDefaultRoute,
+    getCurrentRoute,
+    navigate,
+} from "./router.js";
+
 const app = document.querySelector("#app");
 let selectedNoteId = null;
 let currentView = "all";
@@ -62,6 +68,57 @@ function formatUpdatedAt(updatedAt) {
     }
 
     return updatedDate.toLocaleDateString();
+}
+
+function syncStateWithRoute() {
+    const route = getCurrentRoute();
+
+    if (route.notFound) {
+        currentView = null;
+        selectedNoteId = null;
+
+        return false;
+    }
+
+    currentView = route.view;
+    selectedNoteId = route.noteId;
+
+    return true;
+}
+
+function normalizeSelectedNoteRoute() {
+    if (!selectedNoteId) {
+        return true;
+    }
+
+    const note = getNoteById(selectedNoteId);
+
+    if (!note) {
+        return true;
+    }
+
+    if (note.deleted && currentView !== "trash") {
+        navigate("trash", note.id);
+
+        return false;
+    }
+
+    if (!note.deleted && currentView === "trash") {
+        navigate("all", note.id);
+
+        return false;
+    }
+
+    if (
+        currentView === "pinned"
+        && !note.pinned
+    ) {
+        navigate("all", note.id);
+
+        return false;
+    }
+
+    return true;
 }
 
 function renderApp() {
@@ -143,8 +200,7 @@ function renderNavigation() {
         document.querySelectorAll("[data-view]");
 
     navigationItems.forEach((item) => {
-        const isActive =
-            item.dataset.view === currentView;
+        const isActive = item.dataset.view === currentView;
 
         item.classList.toggle(
             "sidebar-nav__item--active",
@@ -152,8 +208,11 @@ function renderNavigation() {
         );
     });
 
-    const noteListTitle =
-        document.querySelector("#note-list-title");
+    if (!currentView) {
+        return;
+    }
+
+    const noteListTitle = document.querySelector("#note-list-title");
 
     const titles = {
         all: "Notes",
@@ -161,8 +220,7 @@ function renderNavigation() {
         trash: "Trash",
     };
 
-    noteListTitle.textContent =
-        titles[currentView] ?? "Notes";
+    noteListTitle.textContent = titles[currentView];
 }
 
 function renderNoteList() {
@@ -220,9 +278,14 @@ function renderNoteList() {
             trash: "Trash is empty.",
         };
 
+        const message =
+            searchQuery.trim()
+                ? "No matching notes."
+                : emptyMessages[currentView];
+
         noteList.innerHTML = `
             <p class="empty-message">
-                ${emptyMessages[currentView]}
+                ${message}
             </p>
         `;
 
@@ -364,11 +427,59 @@ function renderEditor() {
     contentInput.value = note.content;
 }
 
-function init() {
-    renderApp();
+function renderRoute() {
+    const routeExists =
+        syncStateWithRoute();
+
     renderNavigation();
+
+    if (!routeExists) {
+        renderNotFound();
+
+        return;
+    }
+
+    const routeIsValid =
+        normalizeSelectedNoteRoute();
+
+    if (!routeIsValid) {
+        return;
+    }
+
     renderNoteList();
     renderEditor();
+}
+
+function renderNotFound() {
+    const noteListTitle =
+        document.querySelector("#note-list-title");
+
+    const noteList =
+        document.querySelector("#note-list");
+
+    const editorPanel =
+        document.querySelector("#editor-panel");
+
+    noteListTitle.textContent =
+        "Not Found";
+
+    noteList.innerHTML = `
+        <p class="empty-message">
+            The requested page does not exist.
+        </p>
+    `;
+
+    editorPanel.innerHTML = `
+        <div class="editor-empty">
+            <p>Page not found.</p>
+        </div>
+    `;
+}
+
+function init() {
+    renderApp();
+    ensureDefaultRoute();
+    renderRoute();
 
     const newNoteButton = document.querySelector("#new-note-button");
 
@@ -377,13 +488,20 @@ function init() {
     const noteList = document.querySelector("#note-list");
     const editorPanel = document.querySelector("#editor-panel");
 
+    window.addEventListener(
+        "hashchange",
+        () => {
+            renderRoute();
+        },
+    );
+
     newNoteButton.addEventListener("click", () => {
         const note = createNote();
 
-        selectedNoteId = note.id;
-
-        renderNoteList();
-        renderEditor();
+        navigate(
+            "all",
+            note.id,
+        );
     });
 
     sidebarNavigation.addEventListener(
@@ -396,25 +514,25 @@ function init() {
                 return;
             }
 
-            currentView =
-                navigationItem.dataset.view;
-
-            selectedNoteId = null;
-
-            renderNavigation();
-            renderNoteList();
-            renderEditor();
+            navigate(
+                navigationItem.dataset.view,
+            );
         },
     );
 
-    noteSearch.addEventListener("input", (event) => {
-        searchQuery = event.target.value;
+    noteSearch.addEventListener(
+        "input",
+        (event) => {
+            searchQuery = event.target.value;
 
-        selectedNoteId = null;
+            if (selectedNoteId) {
+                navigate(currentView);
+                return;
+            }
 
-        renderNoteList();
-        renderEditor();
-    });
+            renderNoteList();
+        },
+    );
 
     noteList.addEventListener("click", (event) => {
         const noteItem = event.target.closest(".note-item");
@@ -423,10 +541,10 @@ function init() {
             return;
         }
 
-        selectedNoteId = noteItem.dataset.noteId;
-
-        renderNoteList();
-        renderEditor();
+        navigate(
+            currentView,
+            noteItem.dataset.noteId,
+        );
     });
 
     editorPanel.addEventListener("input", (event) => {
@@ -464,14 +582,24 @@ function init() {
 
         if (pinButton) {
             const note = getNoteById(selectedNoteId);
-
             if (!note) {
                 return;
             }
 
+            const willBePinned = !note.pinned;
+
             updateNote(selectedNoteId, {
-                pinned: !note.pinned,
+                pinned: willBePinned,
             });
+
+            if (
+                currentView === "pinned"
+                && !willBePinned
+            ) {
+                navigate("pinned");
+
+                return;
+            }
 
             renderNoteList();
             renderEditor();
@@ -482,10 +610,7 @@ function init() {
         if (trashButton) {
             moveNoteToTrash(selectedNoteId);
 
-            selectedNoteId = null;
-
-            renderNoteList();
-            renderEditor();
+            navigate(currentView);
 
             return;
         }
@@ -493,10 +618,7 @@ function init() {
         if (restoreButton) {
             restoreNote(selectedNoteId);
 
-            selectedNoteId = null;
-
-            renderNoteList();
-            renderEditor();
+            navigate("trash");
         }
 
         if (deleteButton) {
@@ -510,10 +632,7 @@ function init() {
 
             deleteNotePermanently(selectedNoteId);
 
-            selectedNoteId = null;
-
-            renderNoteList();
-            renderEditor();
+            navigate("trash");
         }
     });
 }
