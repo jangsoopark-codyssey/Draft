@@ -5,6 +5,7 @@ import {
     moveNoteToTrash,
     restoreNote,
     updateNote,
+    deleteNotePermanently,
 } from "./repositories/note-repository.js";
 
 const app = document.querySelector("#app");
@@ -312,6 +313,14 @@ function renderEditor() {
                                 >
                                     Restore
                                 </button>
+
+                                <button
+                                    id="delete-note-button"
+                                    class="editor-action-button editor-action-button--danger"
+                                    type="button"
+                                >
+                                    Delete Permanently
+                                </button>
                             `
                             : `
                                 <button
@@ -449,10 +458,9 @@ function init() {
         }
 
         const pinButton = event.target.closest("#toggle-pin-button");
-
         const trashButton = event.target.closest("#trash-note-button");
-
         const restoreButton = event.target.closest("#restore-note-button");
+        const deleteButton = event.target.closest("#delete-note-button");
 
         if (pinButton) {
             const note = getNoteById(selectedNoteId);
@@ -484,6 +492,23 @@ function init() {
 
         if (restoreButton) {
             restoreNote(selectedNoteId);
+
+            selectedNoteId = null;
+
+            renderNoteList();
+            renderEditor();
+        }
+
+        if (deleteButton) {
+            const confirmed = window.confirm(
+                "Delete this note permanently? This action cannot be undone.",
+            );
+
+            if (!confirmed) {
+                return;
+            }
+
+            deleteNotePermanently(selectedNoteId);
 
             selectedNoteId = null;
 

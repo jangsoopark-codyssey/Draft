@@ -95,3 +95,13 @@ export function restoreNote(id) {
         deleted: false,
     });
 }
+
+export function deleteNotePermanently(id) {
+    const notes = readNotes();
+
+    const filteredNotes = notes.filter(
+        (note) => note.id !== id,
+    );
+
+    writeNotes(filteredNotes);
+}
