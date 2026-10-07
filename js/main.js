@@ -1285,6 +1285,14 @@ function renderEditor() {
     editorPanel.innerHTML = `
         <div class="editor-content">
             <header class="editor-header">
+                <button
+                    id="mobile-back-button"
+                    class="mobile-back-button"
+                    type="button"
+                    aria-label="Back to notes"
+                >
+                    ←
+                </button>
                 <input
                     id="note-title"
                     class="editor-title"
@@ -1316,8 +1324,10 @@ function renderEditor() {
                                     id="delete-note-button"
                                     class="editor-action-button editor-action-button--danger"
                                     type="button"
+                                    aria-label="Delete permanently"
                                 >
-                                    Delete Permanently
+                                    <span class="editor-action-button__label--desktop">Delete Permanently</span>
+                                    <span class="editor-action-button__label--mobile" aria-hidden="true">Delete</span>
                                 </button>
                             `
                             : `
@@ -1436,17 +1446,33 @@ function renderEditor() {
     updateToolbarState();
 }
 
+function updateResponsiveLayoutState() {
+    const appLayout = document.querySelector(".app-layout");
+
+    if (!appLayout) {
+        return;
+    }
+
+    appLayout.classList.toggle("app-layout--editor-open", Boolean(selectedNoteId));
+}
+
 function renderRoute() {
     const routeExists = syncStateWithRoute();
     renderNavigation();
+
     if (!routeExists) {
+        updateResponsiveLayoutState();
         renderNotFound();
         return;
     }
+
     const routeIsValid = normalizeSelectedNoteRoute();
+
     if (!routeIsValid) {
         return;
     }
+
+    updateResponsiveLayoutState();
     renderNoteList();
     renderEditor();
 }
@@ -1648,6 +1674,7 @@ function init() {
             return;
         }
 
+        const mobileBackButton = event.target.closest("#mobile-back-button");
         const copyPlainTextButton = event.target.closest("#copy-plain-text-button");
         const pinButton = event.target.closest("#toggle-pin-button");
         const trashButton = event.target.closest("#trash-note-button");
@@ -1655,6 +1682,11 @@ function init() {
         const deleteButton = event.target.closest("#delete-note-button");
         const formatButton = event.target.closest("[data-format]");
         const commandButton = event.target.closest("[data-command]");
+
+        if (mobileBackButton) {
+            navigate(currentView);
+            return;
+        }
 
         if (copyPlainTextButton) {
             const copied = await copyNoteAsPlainText(selectedNoteId);
