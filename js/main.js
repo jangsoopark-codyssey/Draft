@@ -1,3 +1,8 @@
+import {
+    createNote,
+    getAllNotes,
+} from "./repositories/note-repository.js";
+
 const app = document.querySelector("#app");
 
 function renderApp() {
@@ -12,7 +17,11 @@ function renderApp() {
                     <button type="button">Trash</button>
                 </nav>
 
-                <button type="button" class="new-note-button">
+                <button
+                    id="new-note-button"
+                    type="button"
+                    class="new-note-button"
+                >
                     + New Note
                 </button>
             </aside>
@@ -30,11 +39,10 @@ function renderApp() {
                     >
                 </div>
 
-                <div class="note-list">
-                    <p class="empty-message">
-                        No notes yet.
-                    </p>
-                </div>
+                <div
+                    id="note-list"
+                    class="note-list"
+                ></div>
             </section>
 
             <main class="editor-panel">
@@ -46,4 +54,48 @@ function renderApp() {
     `;
 }
 
-renderApp();
+function renderNoteList() {
+    const noteList = document.querySelector("#note-list");
+
+    const notes = getAllNotes()
+        .filter((note) => !note.deleted);
+
+    if (notes.length === 0) {
+        noteList.innerHTML = `
+            <p class="empty-message">
+                No notes yet.
+            </p>
+        `;
+
+        return;
+    }
+
+    noteList.innerHTML = notes
+        .map((note) => {
+            return `
+                <button
+                    type="button"
+                    class="note-item"
+                    data-note-id="${note.id}"
+                >
+                    <strong>${note.title}</strong>
+                </button>
+            `;
+        })
+        .join("");
+}
+
+function init() {
+    renderApp();
+    renderNoteList();
+
+    const newNoteButton =
+        document.querySelector("#new-note-button");
+
+    newNoteButton.addEventListener("click", () => {
+        createNote();
+        renderNoteList();
+    });
+}
+
+init();

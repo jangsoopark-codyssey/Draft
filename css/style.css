@@ -178,3 +178,24 @@ button {
 .editor-empty {
     color: var(--color-text-muted);
 }
+
+.note-item {
+    display: block;
+
+    width: 100%;
+
+    padding: var(--space-3);
+
+    border: 0;
+    border-radius: var(--radius-sm);
+
+    background: transparent;
+
+    text-align: left;
+
+    cursor: pointer;
+}
+
+.note-item:hover {
+    background: var(--color-surface);
+}
