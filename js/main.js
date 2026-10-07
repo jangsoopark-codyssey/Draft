@@ -246,6 +246,91 @@ function removeMatchingTags(root, tagName) {
     elements.forEach((element) => unwrapElement(element));
 }
 
+const INLINE_FORMAT_PLACEHOLDER = "\u200B";
+
+function cleanupInlineFormatPlaceholders(editor) {
+    editor.querySelectorAll("[data-pending-format], [data-format-break]").forEach((element) => {
+        const text = element.textContent.replaceAll(INLINE_FORMAT_PLACEHOLDER, "");
+
+        if (!text) {
+            if (!element.matches(":focus")) {
+                element.remove();
+            }
+            return;
+        }
+
+        element.textContent = text;
+        element.removeAttribute("data-pending-format");
+
+        if (element.hasAttribute("data-format-break")) {
+            element.removeAttribute("data-format-break");
+            unwrapElement(element);
+        }
+    });
+}
+
+function setCollapsedSelection(node, offset) {
+    const selection = window.getSelection();
+    const range = document.createRange();
+
+    range.setStart(node, offset);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    savedEditorRange = range.cloneRange();
+}
+
+function disableCollapsedInlineFormatting(element, range, editor) {
+    const marker = document.createComment("format-caret");
+    const insertionRange = range.cloneRange();
+
+    insertionRange.insertNode(marker);
+
+    const afterRange = document.createRange();
+    afterRange.setStartAfter(marker);
+    afterRange.setEnd(element, element.childNodes.length);
+
+    const afterContent = afterRange.extractContents();
+    const afterElement = element.cloneNode(false);
+
+    afterElement.removeAttribute("data-pending-format");
+    afterElement.append(afterContent);
+
+    const parent = element.parentNode;
+    parent.insertBefore(marker, element.nextSibling);
+
+    const breakElement = document.createElement("span");
+    const breakText = document.createTextNode(INLINE_FORMAT_PLACEHOLDER);
+
+    breakElement.dataset.formatBreak = "true";
+    breakElement.append(breakText);
+    parent.insertBefore(breakElement, marker);
+
+    if (afterElement.hasChildNodes()) {
+        parent.insertBefore(afterElement, marker.nextSibling);
+    }
+
+    marker.remove();
+    setCollapsedSelection(breakText, 1);
+    editor.focus();
+
+    return true;
+}
+
+function enableCollapsedInlineFormatting(tagName, range, editor) {
+    const wrapper = document.createElement(tagName);
+    const textNode = document.createTextNode(INLINE_FORMAT_PLACEHOLDER);
+
+    wrapper.dataset.pendingFormat = "true";
+    wrapper.append(textNode);
+    range.insertNode(wrapper);
+
+    setCollapsedSelection(textNode, 1);
+    editor.focus();
+
+    return true;
+}
+
 function toggleInlineFormatting(tagName) {
     const editor = getRichEditor();
 
@@ -255,7 +340,19 @@ function toggleInlineFormatting(tagName) {
 
     const range = getActiveEditorRange(editor);
 
-    if (!range || range.collapsed) {
+    if (!range) {
+        return false;
+    }
+
+    if (range.collapsed) {
+        const activeElement = findClosestTag(range.startContainer, editor, tagName);
+
+        if (activeElement) {
+            disableCollapsedInlineFormatting(activeElement, range, editor);
+        } else {
+            enableCollapsedInlineFormatting(tagName, range, editor);
+        }
+
         return false;
     }
 
@@ -328,6 +425,73 @@ function findClosestBlock(node, editor) {
     return null;
 }
 
+function getSelectedTextBlocks(range, editor) {
+    if (range.collapsed) {
+        const block = findClosestBlock(range.startContainer, editor);
+        return block ? [block] : [];
+    }
+
+    const candidates = Array.from(
+        editor.querySelectorAll("p, div, h1, h2, h3, li, pre, blockquote"),
+    ).filter((block) => {
+        try {
+            return range.intersectsNode(block);
+        } catch {
+            return false;
+        }
+    });
+
+    return candidates.filter((block) => {
+        return !candidates.some((otherBlock) => {
+            return otherBlock !== block && block.contains(otherBlock);
+        });
+    });
+}
+
+function createSelectionMarkers(range) {
+    const startMarker = document.createComment("selection-start");
+    const endMarker = document.createComment("selection-end");
+
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    endRange.insertNode(endMarker);
+
+    const startRange = range.cloneRange();
+    startRange.collapse(true);
+    startRange.insertNode(startMarker);
+
+    return { startMarker, endMarker };
+}
+
+function restoreSelectionFromMarkers(startMarker, endMarker, editor) {
+    const selection = window.getSelection();
+    const range = document.createRange();
+
+    range.setStartAfter(startMarker);
+    range.setEndBefore(endMarker);
+
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    startMarker.remove();
+    endMarker.remove();
+    editor.normalize();
+
+    if (selection.rangeCount > 0) {
+        savedEditorRange = selection.getRangeAt(0).cloneRange();
+    }
+
+    editor.focus();
+}
+
+function getRangeBetweenMarkers(startMarker, endMarker) {
+    const range = document.createRange();
+
+    range.setStartAfter(startMarker);
+    range.setEndBefore(endMarker);
+    return range;
+}
+
 function replaceElementTag(element, tagName) {
     const replacement = document.createElement(tagName);
 
@@ -357,24 +521,45 @@ function applyBlockFormatting(format) {
         return false;
     }
 
-    const block = findClosestBlock(range.startContainer, editor);
+    if (range.collapsed) {
+        const block = findClosestBlock(range.startContainer, editor);
 
-    if (!block || block.tagName === "LI") {
-        return false;
-    }
+        if (!block || block.tagName === "LI") {
+            return false;
+        }
 
-    const currentTagName = block.tagName.toLowerCase();
+        const currentTagName = block.tagName.toLowerCase();
 
-    if (currentTagName === tagName || (format === "normal" && (currentTagName === "p" || currentTagName === "div"))) {
+        if (currentTagName === tagName || (format === "normal" && (currentTagName === "p" || currentTagName === "div"))) {
+            editor.focus();
+            return false;
+        }
+
+        const replacement = replaceElementTag(block, tagName);
+        setSelectionToNodeContents(replacement, true);
         editor.focus();
-        return false;
+        return true;
     }
 
-    const replacement = replaceElementTag(block, tagName);
-    setSelectionToNodeContents(replacement, true);
-    editor.focus();
+    const { startMarker, endMarker } = createSelectionMarkers(range);
+    const markedRange = getRangeBetweenMarkers(startMarker, endMarker);
+    const blocks = getSelectedTextBlocks(markedRange, editor)
+        .filter((block) => block.tagName !== "LI");
+    let changed = false;
 
-    return true;
+    blocks.forEach((block) => {
+        const currentTagName = block.tagName.toLowerCase();
+        const alreadyFormatted = currentTagName === tagName
+            || (format === "normal" && (currentTagName === "p" || currentTagName === "div"));
+
+        if (!alreadyFormatted) {
+            replaceElementTag(block, tagName);
+            changed = true;
+        }
+    });
+
+    restoreSelectionFromMarkers(startMarker, endMarker, editor);
+    return changed;
 }
 
 function unwrapListItemToParagraph(listItem) {
@@ -408,6 +593,54 @@ function unwrapListItemToParagraph(listItem) {
     return paragraph;
 }
 
+function mergeAdjacentLists(editor, listTagName) {
+    let current = editor.firstElementChild;
+
+    while (current) {
+        const next = current.nextElementSibling;
+
+        if (
+            current.tagName.toLowerCase() === listTagName
+            && next
+            && next.tagName.toLowerCase() === listTagName
+        ) {
+            while (next.firstChild) {
+                current.append(next.firstChild);
+            }
+
+            next.remove();
+            continue;
+        }
+
+        current = next;
+    }
+}
+
+function convertBlockToList(block, listTagName) {
+    if (block.tagName === "LI") {
+        const list = block.parentElement;
+
+        if (list && (list.tagName === "UL" || list.tagName === "OL")) {
+            if (list.tagName.toLowerCase() !== listTagName) {
+                replaceElementTag(list, listTagName);
+            }
+
+            return block;
+        }
+    }
+
+    const list = document.createElement(listTagName);
+    const listItem = document.createElement("li");
+
+    while (block.firstChild) {
+        listItem.append(block.firstChild);
+    }
+
+    list.append(listItem);
+    block.replaceWith(list);
+    return listItem;
+}
+
 function toggleListFormatting(listTagName) {
     const editor = getRichEditor();
 
@@ -421,46 +654,71 @@ function toggleListFormatting(listTagName) {
         return false;
     }
 
-    const listItem = findClosestTag(range.startContainer, editor, "li");
+    if (range.collapsed) {
+        const listItem = findClosestTag(range.startContainer, editor, "li");
 
-    if (listItem) {
-        const list = listItem.parentElement;
+        if (listItem) {
+            const list = listItem.parentElement;
 
-        if (!list || (list.tagName !== "UL" && list.tagName !== "OL")) {
+            if (!list || (list.tagName !== "UL" && list.tagName !== "OL")) {
+                return false;
+            }
+
+            if (list.tagName.toLowerCase() === listTagName) {
+                const paragraph = unwrapListItemToParagraph(listItem);
+                setSelectionToNodeContents(paragraph, true);
+            } else {
+                replaceElementTag(list, listTagName);
+                setSelectionToNodeContents(listItem, true);
+            }
+
+            editor.focus();
+            return true;
+        }
+
+        const block = findClosestBlock(range.startContainer, editor);
+
+        if (!block) {
             return false;
         }
 
-        if (list.tagName.toLowerCase() === listTagName) {
-            const paragraph = unwrapListItemToParagraph(listItem);
-            setSelectionToNodeContents(paragraph, true);
-        } else {
-            replaceElementTag(list, listTagName);
-            setSelectionToNodeContents(listItem, true);
-        }
-
+        const listItemResult = convertBlockToList(block, listTagName);
+        setSelectionToNodeContents(listItemResult, true);
         editor.focus();
         return true;
     }
 
-    const block = findClosestBlock(range.startContainer, editor);
+    const { startMarker, endMarker } = createSelectionMarkers(range);
+    const markedRange = getRangeBetweenMarkers(startMarker, endMarker);
+    const blocks = getSelectedTextBlocks(markedRange, editor);
 
-    if (!block || block.tagName === "LI") {
+    if (blocks.length === 0) {
+        restoreSelectionFromMarkers(startMarker, endMarker, editor);
         return false;
     }
 
-    const list = document.createElement(listTagName);
-    const newListItem = document.createElement("li");
+    const allInTargetList = blocks.every((block) => {
+        return block.tagName === "LI"
+            && block.parentElement?.tagName.toLowerCase() === listTagName;
+    });
 
-    while (block.firstChild) {
-        newListItem.append(block.firstChild);
+    if (allInTargetList) {
+        [...blocks].reverse().forEach((block) => {
+            if (block.isConnected) {
+                unwrapListItemToParagraph(block);
+            }
+        });
+    } else {
+        blocks.forEach((block) => {
+            if (block.isConnected) {
+                convertBlockToList(block, listTagName);
+            }
+        });
+
+        mergeAdjacentLists(editor, listTagName);
     }
 
-    list.append(newListItem);
-    block.replaceWith(list);
-
-    setSelectionToNodeContents(newListItem, true);
-    editor.focus();
-
+    restoreSelectionFromMarkers(startMarker, endMarker, editor);
     return true;
 }
 
@@ -669,6 +927,49 @@ function setToolbarButtonActive(button, active) {
     button.setAttribute("aria-pressed", String(active));
 }
 
+function getSelectedTextNodes(range, editor) {
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    let node = walker.nextNode();
+
+    while (node) {
+        if (node.textContent && node.textContent !== INLINE_FORMAT_PLACEHOLDER) {
+            try {
+                if (range.intersectsNode(node)) {
+                    nodes.push(node);
+                }
+            } catch {
+                // Ignore detached nodes.
+            }
+        }
+
+        node = walker.nextNode();
+    }
+
+    return nodes;
+}
+
+function isRangeFullyFormatted(range, editor, tagName) {
+    if (range.collapsed) {
+        return Boolean(findClosestTag(range.startContainer, editor, tagName));
+    }
+
+    const nodes = getSelectedTextNodes(range, editor);
+
+    return nodes.length > 0 && nodes.every((node) => {
+        return Boolean(findClosestTag(node, editor, tagName));
+    });
+}
+
+function areSelectedBlocksInList(range, editor, listTagName) {
+    const blocks = getSelectedTextBlocks(range, editor);
+
+    return blocks.length > 0 && blocks.every((block) => {
+        return block.tagName === "LI"
+            && block.parentElement?.tagName.toLowerCase() === listTagName;
+    });
+}
+
 function updateToolbarState() {
     const editor = getRichEditor();
     const toolbar = document.querySelector(".editor-toolbar");
@@ -693,15 +994,20 @@ function updateToolbarState() {
         return;
     }
 
-    const node = range.startContainer;
-    const block = findClosestBlock(node, editor);
-    const blockTagName = block?.tagName.toLowerCase();
+    const blocks = getSelectedTextBlocks(range, editor);
+    const blockFormats = blocks
+        .filter((block) => block.tagName !== "LI")
+        .map((block) => block.tagName.toLowerCase())
+        .map((tagName) => (["h1", "h2", "h3"].includes(tagName) ? tagName : "normal"));
+    const uniqueBlockFormats = new Set(blockFormats);
 
-    blockFormatSelect.value = ["h1", "h2", "h3"].includes(blockTagName) ? blockTagName : "normal";
+    blockFormatSelect.value = uniqueBlockFormats.size === 1
+        ? [...uniqueBlockFormats][0]
+        : "normal";
 
     formatButtons.forEach((button) => {
         const tagName = INLINE_FORMAT_TAGS[button.dataset.format];
-        const active = tagName ? Boolean(findClosestTag(node, editor, tagName)) : false;
+        const active = tagName ? isRangeFullyFormatted(range, editor, tagName) : false;
         setToolbarButtonActive(button, active);
     });
 
@@ -710,11 +1016,11 @@ function updateToolbarState() {
         let active = false;
 
         if (command === "unordered-list") {
-            active = Boolean(findClosestTag(node, editor, "ul"));
+            active = areSelectedBlocksInList(range, editor, "ul");
         } else if (command === "ordered-list") {
-            active = Boolean(findClosestTag(node, editor, "ol"));
+            active = areSelectedBlocksInList(range, editor, "ol");
         } else if (command === "link") {
-            active = Boolean(findClosestTag(node, editor, "a"));
+            active = isRangeFullyFormatted(range, editor, "a");
         }
 
         if (command !== "clear-formatting") {
@@ -1312,6 +1618,7 @@ function init() {
         const contentInput = document.querySelector("#note-content");
 
         if (event.target.id === "note-content") {
+            cleanupInlineFormatPlaceholders(contentInput);
             normalizeRichTextBlocks(contentInput);
         }
 
