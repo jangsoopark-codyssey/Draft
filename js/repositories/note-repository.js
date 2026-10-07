@@ -55,3 +55,32 @@ export function getNoteById(id) {
     return notes.find((note) => note.id === id) ?? null;
 }
 
+export function updateNote(id, changes) {
+    const notes = readNotes();
+
+    const noteIndex = notes.findIndex(
+        (note) => note.id === id,
+    );
+
+    if (noteIndex === -1) {
+        return null;
+    }
+
+    const currentNote = notes[noteIndex];
+
+    const updatedNote = {
+        ...currentNote,
+        ...changes,
+
+        id: currentNote.id,
+        createdAt: currentNote.createdAt,
+        updatedAt: new Date().toISOString(),
+    };
+
+    notes[noteIndex] = updatedNote;
+
+    writeNotes(notes);
+
+    return updatedNote;
+}
+

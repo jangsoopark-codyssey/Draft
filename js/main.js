@@ -2,10 +2,19 @@ import {
     createNote,
     getAllNotes,
     getNoteById,
+    updateNote,
 } from "./repositories/note-repository.js";
 
 const app = document.querySelector("#app");
 let selectedNoteId = null;
+
+function escapeHtml(value) {
+    const element = document.createElement("div");
+
+    element.textContent = value;
+
+    return element.innerHTML;
+}
 
 function renderApp() {
     app.innerHTML = `
@@ -62,6 +71,7 @@ function renderApp() {
 function renderNoteList() {
     const noteList = document.querySelector("#note-list");
 
+
     const notes = getAllNotes()
         .filter((note) => !note.deleted);
 
@@ -78,6 +88,7 @@ function renderNoteList() {
     noteList.innerHTML = notes
         .map((note) => {
             const isSelected = note.id === selectedNoteId;
+            const displayTitle = note.title.trim() || "Untitled";
 
             return `
                 <button
@@ -85,7 +96,7 @@ function renderNoteList() {
                     class="note-item ${isSelected ? "note-item--selected" : ""}"
                     data-note-id="${note.id}"
                 >
-                    <strong>${note.title}</strong>
+                    <strong>${escapeHtml(displayTitle)}</strong>
                 </button>
             `;
         })
@@ -127,7 +138,6 @@ function renderEditor() {
                     class="editor-title"
                     type="text"
                     aria-label="Note title"
-                    readonly
                 >
             </header>
 
@@ -135,7 +145,6 @@ function renderEditor() {
                 id="note-content"
                 class="editor-textarea"
                 aria-label="Note content"
-                readonly
             ></textarea>
         </div>
     `;
@@ -161,6 +170,9 @@ function init() {
     const noteList =
         document.querySelector("#note-list");
 
+    const editorPanel = 
+        document.querySelector("#editor-panel");
+
     newNoteButton.addEventListener("click", () => {
         const note = createNote();
 
@@ -183,6 +195,32 @@ function init() {
 
         renderNoteList();
         renderEditor();
+    });
+
+    editorPanel.addEventListener("input", (event) => {
+        if (!selectedNoteId) {
+            return;
+        }
+
+        if (
+            event.target.id !== "note-title"
+            && event.target.id !== "note-content"
+        ) {
+            return;
+        }
+
+        const titleInput =
+            document.querySelector("#note-title");
+
+        const contentInput =
+            document.querySelector("#note-content");
+
+        updateNote(selectedNoteId, {
+            title: titleInput.value,
+            content: contentInput.value,
+        });
+
+        renderNoteList();
     });
 }
 
