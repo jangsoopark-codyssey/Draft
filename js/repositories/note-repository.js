@@ -84,3 +84,14 @@ export function updateNote(id, changes) {
     return updatedNote;
 }
 
+export function moveNoteToTrash(id) {
+    return updateNote(id, {
+        deleted: true,
+    });
+}
+
+export function restoreNote(id) {
+    return updateNote(id, {
+        deleted: false,
+    });
+}

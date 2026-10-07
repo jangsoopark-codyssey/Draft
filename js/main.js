@@ -2,6 +2,8 @@ import {
     createNote,
     getAllNotes,
     getNoteById,
+    moveNoteToTrash,
+    restoreNote,
     updateNote,
 } from "./repositories/note-repository.js";
 
@@ -268,6 +270,7 @@ function renderEditor() {
 
         return;
     }
+    const isTrashView = currentView === "trash";
 
     editorPanel.innerHTML = `
         <div class="editor-content">
@@ -278,22 +281,49 @@ function renderEditor() {
                     type="text"
                     placeholder="Untitled"
                     aria-label="Note title"
+                    ${isTrashView ? "readonly" : ""}
                 >
 
-                <button
-                    id="toggle-pin-button"
-                    class="editor-action-button"
-                    type="button"
-                    aria-pressed="${note.pinned}"
-                >
-                    ${note.pinned ? "Unpin" : "Pin"}
-                </button>
+                <div class="editor-actions">
+                    ${
+                        isTrashView
+                            ? `
+                                <button
+                                    id="restore-note-button"
+                                    class="editor-action-button"
+                                    type="button"
+                                >
+                                    Restore
+                                </button>
+                            `
+                            : `
+                                <button
+                                    id="toggle-pin-button"
+                                    class="editor-action-button"
+                                    type="button"
+                                    aria-pressed="${note.pinned}"
+                                >
+                                    ${note.pinned ? "Unpin" : "Pin"}
+                                </button>
+
+                                <button
+                                    id="trash-note-button"
+                                    class="editor-action-button"
+                                    type="button"
+                                >
+                                    Trash
+                                </button>
+                            `
+                    }
+                </div>
             </header>
 
             <textarea
                 id="note-content"
                 class="editor-textarea"
+                placeholder="Start writing..."
                 aria-label="Note content"
+                ${isTrashView ? "readonly" : ""}
             ></textarea>
         </div>
     `;
@@ -357,15 +387,14 @@ function init() {
             return;
         }
 
-        selectedNoteId =
-            noteItem.dataset.noteId;
+        selectedNoteId = noteItem.dataset.noteId;
 
         renderNoteList();
         renderEditor();
     });
 
     editorPanel.addEventListener("input", (event) => {
-        if (!selectedNoteId) {
+        if (!selectedNoteId || currentView === "trash") {
             return;
         }
 
@@ -376,11 +405,8 @@ function init() {
             return;
         }
 
-        const titleInput =
-            document.querySelector("#note-title");
-
-        const contentInput =
-            document.querySelector("#note-content");
+        const titleInput = document.querySelector("#note-title");
+        const contentInput = document.querySelector("#note-content");
 
         updateNote(selectedNoteId, {
             title: titleInput.value,
@@ -391,25 +417,52 @@ function init() {
     });
 
     editorPanel.addEventListener("click", (event) => {
-        const pinButton =
-            event.target.closest("#toggle-pin-button");
-
-        if (!pinButton || !selectedNoteId) {
+        if (!selectedNoteId) {
             return;
         }
 
-        const note = getNoteById(selectedNoteId);
+        const pinButton = event.target.closest("#toggle-pin-button");
 
-        if (!note) {
+        const trashButton = event.target.closest("#trash-note-button");
+
+        const restoreButton = event.target.closest("#restore-note-button");
+
+        if (pinButton) {
+            const note = getNoteById(selectedNoteId);
+
+            if (!note) {
+                return;
+            }
+
+            updateNote(selectedNoteId, {
+                pinned: !note.pinned,
+            });
+
+            renderNoteList();
+            renderEditor();
+
             return;
         }
 
-        updateNote(selectedNoteId, {
-            pinned: !note.pinned,
-        });
+        if (trashButton) {
+            moveNoteToTrash(selectedNoteId);
 
-        renderNoteList();
-        renderEditor();
+            selectedNoteId = null;
+
+            renderNoteList();
+            renderEditor();
+
+            return;
+        }
+
+        if (restoreButton) {
+            restoreNote(selectedNoteId);
+
+            selectedNoteId = null;
+
+            renderNoteList();
+            renderEditor();
+        }
     });
 }
 
