@@ -350,3 +350,71 @@ button {
 .editor-action-button--danger:hover {
     background: #fff0ee;
 }
+
+.editor-mode {
+    display: flex;
+    align-items: center;
+
+    gap: var(--space-2);
+
+    padding:
+        var(--space-3)
+        var(--space-6);
+
+    border-bottom: 1px solid var(--color-border);
+}
+
+.editor-mode__button {
+    padding: 7px 10px;
+
+    border: 0;
+    border-radius: var(--radius-sm);
+
+    background: transparent;
+
+    color: var(--color-text-muted);
+
+    cursor: pointer;
+}
+
+.editor-mode__button:hover {
+    background: var(--color-surface-hover);
+}
+
+.editor-mode__button--active {
+    background: var(--color-surface);
+
+    color: var(--color-text);
+
+    font-weight: 600;
+}
+
+.editor-mode__button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.editor-rich {
+    flex: 1;
+
+    width: 100%;
+    min-height: 0;
+
+    padding: var(--space-6);
+
+    outline: none;
+
+    color: var(--color-text);
+
+    line-height: 1.7;
+
+    overflow-y: auto;
+}
+
+.editor-rich:empty::before {
+    content: attr(data-placeholder);
+
+    color: var(--color-text-muted);
+
+    pointer-events: none;
+}

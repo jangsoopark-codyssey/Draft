@@ -389,6 +389,7 @@ function renderEditor() {
         return;
     }
     const isTrashView = currentView === "trash";
+    const noteMode = note.mode ?? "plain";
 
     editorPanel.innerHTML = `
         <div class="editor-content">
@@ -444,29 +445,74 @@ function renderEditor() {
                 </div>
             </header>
 
-            <textarea
-                id="note-content"
-                class="editor-textarea"
-                placeholder="Start writing..."
-                aria-label="Note content"
-                ${isTrashView ? "readonly" : ""}
-            ></textarea>
+            <div class="editor-mode">
+                <button
+                    type="button"
+                    class="editor-mode__button ${
+                        noteMode === "plain"
+                            ? "editor-mode__button--active"
+                            : ""
+                    }"
+                    data-editor-mode="plain"
+                    ${isTrashView ? "disabled" : ""}
+                >
+                    Plain Text
+                </button>
+
+                <button
+                    type="button"
+                    class="editor-mode__button ${
+                        noteMode === "rich"
+                            ? "editor-mode__button--active"
+                            : ""
+                    }"
+                    data-editor-mode="rich"
+                    ${isTrashView ? "disabled" : ""}
+                >
+                    Rich Text
+                </button>
+            </div>
+
+            ${
+                noteMode === "plain"
+                    ? `
+                        <textarea
+                            id="note-content"
+                            class="editor-textarea"
+                            placeholder="Start writing..."
+                            aria-label="Note content"
+                            ${isTrashView ? "readonly" : ""}
+                        ></textarea>
+                    `
+                    : `
+                        <div
+                            id="note-content"
+                            class="editor-rich"
+                            contenteditable="${isTrashView ? "false" : "true"}"
+                            role="textbox"
+                            aria-multiline="true"
+                            aria-label="Note content"
+                            data-placeholder="Start writing..."
+                        ></div>
+                    `
+            }
         </div>
     `;
 
-    const titleInput =
-        document.querySelector("#note-title");
-
-    const contentInput =
-        document.querySelector("#note-content");
+    const titleInput = document.querySelector("#note-title");
+    const contentInput = document.querySelector("#note-content");
 
     titleInput.value = note.title;
-    contentInput.value = note.content;
+
+    if (noteMode === "rich") {
+        contentInput.innerHTML = note.content;
+    } else {
+        contentInput.value = note.content;
+    }
 }
 
 function renderRoute() {
-    const routeExists =
-        syncStateWithRoute();
+    const routeExists = syncStateWithRoute();
 
     renderNavigation();
 
@@ -476,8 +522,7 @@ function renderRoute() {
         return;
     }
 
-    const routeIsValid =
-        normalizeSelectedNoteRoute();
+    const routeIsValid = normalizeSelectedNoteRoute();
 
     if (!routeIsValid) {
         return;
@@ -596,14 +641,26 @@ function init() {
             return;
         }
 
+        const note = getNoteById(selectedNoteId);
+        if (!note) {
+            return;
+        }
+
         const titleInput = document.querySelector("#note-title");
+
         const contentInput = document.querySelector("#note-content");
+
+        const content =
+            note.mode === "rich"
+                ? contentInput.innerHTML
+                : contentInput.value;
 
         updateNote(selectedNoteId, {
             title: titleInput.value,
-            content: contentInput.value,
+            content,
         });
 
+        renderNoteList();
         renderNoteList();
     });
 
@@ -612,10 +669,62 @@ function init() {
             return;
         }
 
+        const modeButton = event.target.closest("[data-editor-mode]");
         const pinButton = event.target.closest("#toggle-pin-button");
         const trashButton = event.target.closest("#trash-note-button");
         const restoreButton = event.target.closest("#restore-note-button");
         const deleteButton = event.target.closest("#delete-note-button");
+
+        if (modeButton) {
+            const note =
+                getNoteById(selectedNoteId);
+
+            if (!note || currentView === "trash") {
+                return;
+            }
+
+            const nextMode =
+                modeButton.dataset.editorMode;
+
+            if (nextMode === note.mode) {
+                return;
+            }
+
+            if (nextMode === "rich") {
+                updateNote(selectedNoteId, {
+                    mode: "rich",
+                    content: plainTextToHtml(
+                        note.content,
+                    ),
+                });
+
+                renderNoteList();
+                renderEditor();
+
+                return;
+            }
+
+            const confirmed =
+                window.confirm(
+                    "Convert to Plain Text? All formatting will be removed.",
+                );
+
+            if (!confirmed) {
+                return;
+            }
+
+            updateNote(selectedNoteId, {
+                mode: "plain",
+                content: richTextToPlainText(
+                    note.content,
+                ),
+            });
+
+            renderNoteList();
+            renderEditor();
+
+            return;
+        }
 
         if (pinButton) {
             const note = getNoteById(selectedNoteId);
