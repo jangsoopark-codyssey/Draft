@@ -21,14 +21,51 @@ let searchQuery = "";
 
 function escapeHtml(value) {
     const element = document.createElement("div");
-
     element.textContent = value;
 
     return element.innerHTML;
 }
 
-function getNotePreview(content) {
-    const normalizedContent = content
+function plainTextToHtml(text) {
+    return escapeHtml(text)
+        .replace(/\n/g, "<br>");
+}
+
+function richTextToPlainText(html) {
+    const container =
+        document.createElement("div");
+
+    container.innerHTML = html;
+
+    container
+        .querySelectorAll("br")
+        .forEach((element) => {
+            element.replaceWith("\n");
+        });
+
+    container
+        .querySelectorAll("p, div, li")
+        .forEach((element) => {
+            element.append("\n");
+        });
+
+    return container.textContent
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function getNotePlainText(note) {
+    if (note.mode === "rich") {
+        return richTextToPlainText(
+            note.content,
+        );
+    }
+
+    return note.content;
+}
+
+function getNotePreview(note) {
+    const normalizedContent = getNotePlainText(note)
         .replace(/\s+/g, " ")
         .trim();
 
@@ -253,7 +290,7 @@ function renderNoteList() {
     if (normalizedQuery) {
         notes = notes.filter((note) => {
             const title = note.title.toLowerCase();
-            const content = note.content.toLowerCase();
+            const content = getNotePlainText(note).toLowerCase();
 
             return (
                 title.includes(normalizedQuery)
@@ -296,7 +333,7 @@ function renderNoteList() {
         .map((note) => {
             const isSelected = note.id === selectedNoteId;
             const displayTitle = note.title.trim() || "Untitled";
-            const preview = getNotePreview(note.content);
+            const preview = getNotePreview(note);
             const updatedAt = formatUpdatedAt(note.updatedAt);
 
             return `
