@@ -18,6 +18,7 @@ const app = document.querySelector("#app");
 let selectedNoteId = null;
 let currentView = "all";
 let searchQuery = "";
+let savedEditorRange = null;
 
 function escapeHtml(value) {
     const element = document.createElement("div");
@@ -26,7 +27,14 @@ function escapeHtml(value) {
 }
 
 function plainTextToHtml(text) {
-    return escapeHtml(text).replace(/\n/g, "<br>");
+    if (!text) {
+        return "";
+    }
+
+    return text
+        .split("\n")
+        .map((line) => `<p>${line ? escapeHtml(line) : "<br>"}</p>`)
+        .join("");
 }
 
 function richTextToPlainText(html) {
@@ -35,7 +43,7 @@ function richTextToPlainText(html) {
     container.querySelectorAll("br").forEach((element) => {
         element.replaceWith("\n");
     });
-    container.querySelectorAll("p, div, li").forEach((element) => {
+    container.querySelectorAll("p, div, li, h1, h2, h3").forEach((element) => {
         element.append("\n");
     });
     return container.textContent.replace(/\n{3,}/g, "\n\n").trim();
@@ -65,6 +73,15 @@ const INLINE_FORMAT_TAGS = {
     italic: "em",
 };
 
+const BLOCK_FORMAT_TAGS = {
+    normal: "p",
+    h1: "h1",
+    h2: "h2",
+    h3: "h3",
+};
+
+const BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3"]);
+
 function findClosestTag(node, editor, tagName) {
     let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
     const normalizedTagName = tagName.toUpperCase();
@@ -79,9 +96,11 @@ function findClosestTag(node, editor, tagName) {
 
 function unwrapElement(element) {
     const parent = element.parentNode;
+
     while (element.firstChild) {
         parent.insertBefore(element.firstChild, element);
     }
+
     element.remove();
 }
 
@@ -103,32 +122,36 @@ function unwrapElementAndRestoreSelection(element, range, selection, editor) {
     newRange.setStartAfter(startMarker);
     newRange.setEndBefore(endMarker);
 
-    editor.focus();
-
     selection.removeAllRanges();
     selection.addRange(newRange);
 
     startMarker.remove();
     endMarker.remove();
-
     editor.normalize();
 }
 
 function toggleInlineFormatting(tagName) {
     const editor = document.querySelector("#note-content.editor-rich");
+
     if (!editor) {
         return;
     }
+
     const selection = window.getSelection();
+
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
         return;
     }
+
     const range = selection.getRangeAt(0);
+
     if (!editor.contains(range.commonAncestorContainer)) {
         return;
     }
+
     const startElement = findClosestTag(range.startContainer, editor, tagName);
     const endElement = findClosestTag(range.endContainer, editor, tagName);
+
     if (startElement && startElement === endElement) {
         unwrapElementAndRestoreSelection(startElement, range, selection, editor);
         return;
@@ -136,13 +159,127 @@ function toggleInlineFormatting(tagName) {
 
     const wrapper = document.createElement(tagName);
     const selectedContent = range.extractContents();
-    
+
     wrapper.append(selectedContent);
     range.insertNode(wrapper);
+
     selection.removeAllRanges();
+
     const newRange = document.createRange();
     newRange.selectNodeContents(wrapper);
     selection.addRange(newRange);
+}
+
+function normalizeRichTextBlocks(editor) {
+    const nodes = Array.from(editor.childNodes);
+    let paragraph = null;
+
+    for (const node of nodes) {
+        if (node.nodeType === Node.ELEMENT_NODE && BLOCK_TAG_NAMES.has(node.tagName)) {
+            paragraph = null;
+            continue;
+        }
+
+        if (node.nodeName === "BR") {
+            if (paragraph) {
+                node.remove();
+                paragraph = null;
+            } else {
+                const emptyParagraph = document.createElement("p");
+                editor.insertBefore(emptyParagraph, node);
+                emptyParagraph.append(node);
+            }
+
+            continue;
+        }
+
+        if (!paragraph) {
+            paragraph = document.createElement("p");
+            editor.insertBefore(paragraph, node);
+        }
+
+        paragraph.append(node);
+    }
+}
+
+function saveEditorSelection() {
+    const editor = document.querySelector("#note-content.editor-rich");
+    const selection = window.getSelection();
+
+    if (!editor || !selection || selection.rangeCount === 0) {
+        return;
+    }
+
+    const range = selection.getRangeAt(0);
+
+    if (!editor.contains(range.commonAncestorContainer)) {
+        return;
+    }
+
+    savedEditorRange = range.cloneRange();
+}
+
+function findClosestBlock(node, editor) {
+    let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+
+    while (element && element !== editor) {
+        if (BLOCK_TAG_NAMES.has(element.tagName)) {
+            return element;
+        }
+
+        element = element.parentElement;
+    }
+
+    return null;
+}
+
+function replaceElementTag(element, tagName) {
+    const replacement = document.createElement(tagName);
+
+    while (element.firstChild) {
+        replacement.append(element.firstChild);
+    }
+
+    element.replaceWith(replacement);
+
+    return replacement;
+}
+
+function applyBlockFormatting(format) {
+    const editor = document.querySelector("#note-content.editor-rich");
+    const tagName = BLOCK_FORMAT_TAGS[format];
+
+    if (!editor || !tagName || !savedEditorRange) {
+        return false;
+    }
+
+    const block = findClosestBlock(savedEditorRange.startContainer, editor);
+
+    if (!block) {
+        return false;
+    }
+
+    const currentTagName = block.tagName.toLowerCase();
+
+    if (currentTagName === tagName || (format === "normal" && (currentTagName === "p" || currentTagName === "div"))) {
+        editor.focus();
+        return false;
+    }
+
+    const replacement = replaceElementTag(block, tagName);
+    const selection = window.getSelection();
+    const range = document.createRange();
+
+    range.selectNodeContents(replacement);
+    range.collapse(false);
+
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    savedEditorRange = range.cloneRange();
+    editor.focus();
+
+    return true;
 }
 
 function formatUpdatedAt(updatedAt) {
@@ -433,6 +570,16 @@ function renderEditor() {
                     ? ""
                     : `
                         <div class="editor-toolbar">
+                            <select
+                                class="editor-toolbar__select"
+                                data-block-format
+                                aria-label="Text style"
+                            >
+                                <option value="normal">Normal</option>
+                                <option value="h1">Heading 1</option>
+                                <option value="h2">Heading 2</option>
+                                <option value="h3">Heading 3</option>
+                            </select>
                             <button
                                 type="button"
                                 class="editor-toolbar__button"
@@ -470,6 +617,7 @@ function renderEditor() {
 
     titleInput.value = note.title;
     contentInput.innerHTML = editorContent;
+    normalizeRichTextBlocks(contentInput);
 }
 
 function renderRoute() {
@@ -625,11 +773,61 @@ function init() {
             navigate("trash");
         }
     });
+    editorPanel.addEventListener("change", (event) => {
+        const blockFormatSelect = event.target.closest("[data-block-format]");
+
+        if (!blockFormatSelect || !selectedNoteId || currentView === "trash") {
+            return;
+        }
+
+        const note = getNoteById(selectedNoteId);
+
+        if (!note) {
+            return;
+        }
+
+        const changed = applyBlockFormatting(blockFormatSelect.value);
+
+        if (!changed) {
+            return;
+        }
+
+        const contentInput = document.querySelector("#note-content");
+
+        updateNote(selectedNoteId, {
+            content: contentInput.innerHTML,
+            mode: undefined,
+        });
+
+        renderNoteList();
+    });
+
+    editorPanel.addEventListener("mouseup", (event) => {
+        if (event.target.closest("#note-content.editor-rich")) {
+            saveEditorSelection();
+        }
+    });
+
+    editorPanel.addEventListener("keyup", (event) => {
+        if (event.target.closest("#note-content.editor-rich")) {
+            saveEditorSelection();
+        }
+    });
+
     editorPanel.addEventListener("mousedown", (event) => {
+        const blockFormatSelect = event.target.closest("[data-block-format]");
+
+        if (blockFormatSelect) {
+            saveEditorSelection();
+            return;
+        }
+
         const formatButton = event.target.closest("[data-format]");
+
         if (!formatButton) {
             return;
         }
+
         event.preventDefault();
     });
 }
