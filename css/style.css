@@ -664,8 +664,10 @@ button {
         top: 100px;
         z-index: 9;
 
-        flex-wrap: nowrap;
-        overflow-x: auto;
+        flex-wrap: wrap;
+        overflow-x: visible;
+
+        gap: var(--space-1);
 
         padding: var(--space-2) var(--space-4);
 
@@ -673,9 +675,12 @@ button {
     }
 
     .editor-toolbar__select,
-    .editor-toolbar__button,
-    .editor-toolbar__separator {
+    .editor-toolbar__button {
         flex-shrink: 0;
+    }
+
+    .editor-toolbar__separator {
+        display: none;
     }
 
     .editor-rich {
