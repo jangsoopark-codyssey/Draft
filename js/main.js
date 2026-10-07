@@ -525,19 +525,94 @@ function toggleLinkFormatting() {
     return true;
 }
 
-function clearCurrentBlockFormatting() {
-    const editor = getRichEditor();
+const CLEAR_FORMAT_TAG_NAMES = new Set(["STRONG", "EM", "A"]);
 
-    if (!editor) {
-        return false;
+function findClosestClearFormatTag(node, editor) {
+    let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+
+    while (element && element !== editor) {
+        if (CLEAR_FORMAT_TAG_NAMES.has(element.tagName)) {
+            return element;
+        }
+
+        element = element.parentElement;
     }
 
-    const range = getActiveEditorRange(editor);
+    return null;
+}
 
-    if (!range) {
-        return false;
+function splitInlineFormattingAtMarker(marker, editor) {
+    let element = findClosestClearFormatTag(marker, editor);
+
+    while (element) {
+        const parent = element.parentNode;
+        const afterRange = document.createRange();
+
+        afterRange.setStartAfter(marker);
+        afterRange.setEnd(element, element.childNodes.length);
+
+        const afterContent = afterRange.extractContents();
+        const afterElement = element.cloneNode(false);
+
+        afterElement.append(afterContent);
+        parent.insertBefore(marker, element.nextSibling);
+
+        if (afterElement.hasChildNodes()) {
+            parent.insertBefore(afterElement, marker.nextSibling);
+        }
+
+        element = findClosestClearFormatTag(marker, editor);
+    }
+}
+
+function removeSelectedInlineFormatting(range, editor) {
+    const selection = window.getSelection();
+    const startMarker = document.createComment("clear-start");
+    const endMarker = document.createComment("clear-end");
+
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    endRange.insertNode(endMarker);
+
+    const startRange = range.cloneRange();
+    startRange.collapse(true);
+    startRange.insertNode(startMarker);
+
+    splitInlineFormattingAtMarker(startMarker, editor);
+    splitInlineFormattingAtMarker(endMarker, editor);
+
+    const selectedRange = document.createRange();
+    selectedRange.setStartAfter(startMarker);
+    selectedRange.setEndBefore(endMarker);
+
+    const formattedElements = Array.from(
+        editor.querySelectorAll("strong, em, a"),
+    )
+        .filter((element) => selectedRange.intersectsNode(element))
+        .reverse();
+
+    formattedElements.forEach((element) => unwrapElement(element));
+
+    const newRange = document.createRange();
+    newRange.setStartAfter(startMarker);
+    newRange.setEndBefore(endMarker);
+
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    startMarker.remove();
+    endMarker.remove();
+
+    editor.normalize();
+
+    if (selection.rangeCount > 0) {
+        savedEditorRange = selection.getRangeAt(0).cloneRange();
     }
 
+    editor.focus();
+}
+
+function clearCurrentBlockFormatting(range, editor) {
     let block = findClosestBlock(range.startContainer, editor);
 
     if (!block) {
@@ -557,6 +632,27 @@ function clearCurrentBlockFormatting() {
     setSelectionToNodeContents(block, true);
     editor.focus();
 
+    return true;
+}
+
+function clearSelectedFormatting() {
+    const editor = getRichEditor();
+
+    if (!editor) {
+        return false;
+    }
+
+    const range = getActiveEditorRange(editor);
+
+    if (!range) {
+        return false;
+    }
+
+    if (range.collapsed) {
+        return clearCurrentBlockFormatting(range, editor);
+    }
+
+    removeSelectedInlineFormatting(range, editor);
     return true;
 }
 
@@ -1215,7 +1311,7 @@ function init() {
             } else if (command === "link") {
                 changed = toggleLinkFormatting();
             } else if (command === "clear-formatting") {
-                changed = clearCurrentBlockFormatting();
+                changed = clearSelectedFormatting();
             }
 
             if (changed) {
