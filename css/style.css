@@ -66,7 +66,7 @@ button {
     gap: var(--space-1);
 }
 
-.sidebar-nav button {
+.sidebar-nav__item {
     padding: 10px 12px;
 
     border: 0;
@@ -78,8 +78,14 @@ button {
     cursor: pointer;
 }
 
-.sidebar-nav button:hover {
+.sidebar-nav__item:hover {
     background: var(--color-surface-hover);
+}
+
+.sidebar-nav__item--active {
+    background: var(--color-bg);
+
+    font-weight: 600;
 }
 
 .new-note-button {

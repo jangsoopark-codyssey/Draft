@@ -7,6 +7,7 @@ import {
 
 const app = document.querySelector("#app");
 let selectedNoteId = null;
+let currentView = "all";
 
 function escapeHtml(value) {
     const element = document.createElement("div");
@@ -66,9 +67,29 @@ function renderApp() {
                 <h1 class="logo">Draft</h1>
 
                 <nav class="sidebar-nav">
-                    <button type="button">All Notes</button>
-                    <button type="button">Pinned</button>
-                    <button type="button">Trash</button>
+                    <button
+                        type="button"
+                        class="sidebar-nav__item sidebar-nav__item--active"
+                        data-view="all"
+                    >
+                        All Notes
+                    </button>
+
+                    <button
+                        type="button"
+                        class="sidebar-nav__item"
+                        data-view="pinned"
+                    >
+                        Pinned
+                    </button>
+
+                    <button
+                        type="button"
+                        class="sidebar-nav__item"
+                        data-view="trash"
+                    >
+                        Trash
+                    </button>
                 </nav>
 
                 <button
@@ -82,7 +103,7 @@ function renderApp() {
 
             <section class="note-list-panel">
                 <header class="note-list-header">
-                    <h2>Notes</h2>
+                    <h2 id="note-list-title">Notes</h2>
                 </header>
 
                 <div class="note-search">
@@ -111,23 +132,77 @@ function renderApp() {
     `;
 }
 
+function renderNavigation() {
+    const navigationItems =
+        document.querySelectorAll("[data-view]");
+
+    navigationItems.forEach((item) => {
+        const isActive =
+            item.dataset.view === currentView;
+
+        item.classList.toggle(
+            "sidebar-nav__item--active",
+            isActive,
+        );
+    });
+
+    const noteListTitle =
+        document.querySelector("#note-list-title");
+
+    const titles = {
+        all: "Notes",
+        pinned: "Pinned",
+        trash: "Trash",
+    };
+
+    noteListTitle.textContent =
+        titles[currentView] ?? "Notes";
+}
+
 function renderNoteList() {
     const noteList = document.querySelector("#note-list");
 
 
-    const notes = getAllNotes()
-        .filter((note) => !note.deleted)
-        .sort((a, b) => {
-            if (a.pinned != b.pinned) {
-                return Number(b.pinned) - Number(a.pinned);
-            }
-            return new Date(b.updatedAt) - new Date(a.updatedAt);
-        });
+    let notes = getAllNotes();
+
+    if (currentView === "all") {
+        notes = notes.filter(
+            (note) => !note.deleted,
+        );
+    }
+
+    if (currentView === "pinned") {
+        notes = notes.filter(
+            (note) =>
+                !note.deleted
+                && note.pinned,
+        );
+    }
+
+    if (currentView === "trash") {
+        notes = notes.filter(
+            (note) => note.deleted,
+        );
+    }
+    notes.sort((a, b) => {
+        if (a.pinned !== b.pinned) {
+            return Number(b.pinned) - Number(a.pinned);
+        }
+
+        return new Date(b.updatedAt)
+            - new Date(a.updatedAt);
+    });
 
     if (notes.length === 0) {
+        const emptyMessages = {
+            all: "No notes yet.",
+            pinned: "No pinned notes.",
+            trash: "Trash is empty.",
+        };
+
         noteList.innerHTML = `
             <p class="empty-message">
-                No notes yet.
+                ${emptyMessages[currentView]}
             </p>
         `;
 
@@ -235,13 +310,14 @@ function renderEditor() {
 
 function init() {
     renderApp();
+    renderNavigation();
     renderNoteList();
     renderEditor();
 
     const newNoteButton = document.querySelector("#new-note-button");
 
+    const sidebarNavigation = document.querySelector(".sidebar-nav");
     const noteList = document.querySelector("#note-list");
-
     const editorPanel = document.querySelector("#editor-panel");
 
     newNoteButton.addEventListener("click", () => {
@@ -252,6 +328,27 @@ function init() {
         renderNoteList();
         renderEditor();
     });
+
+    sidebarNavigation.addEventListener(
+        "click",
+        (event) => {
+            const navigationItem =
+                event.target.closest("[data-view]");
+
+            if (!navigationItem) {
+                return;
+            }
+
+            currentView =
+                navigationItem.dataset.view;
+
+            selectedNoteId = null;
+
+            renderNavigation();
+            renderNoteList();
+            renderEditor();
+        },
+    );
 
     noteList.addEventListener("click", (event) => {
         const noteItem = event.target.closest(".note-item");
