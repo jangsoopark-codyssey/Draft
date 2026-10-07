@@ -16,6 +16,49 @@ function escapeHtml(value) {
     return element.innerHTML;
 }
 
+function getNotePreview(content) {
+    const normalizedContent = content
+        .replace(/\s+/g, " ")
+        .trim();
+
+    if (!normalizedContent) {
+        return "No additional text";
+    }
+
+    const maxLength = 60;
+
+    if (normalizedContent.length <= maxLength) {
+        return normalizedContent;
+    }
+
+    return `${normalizedContent.slice(0, maxLength)}...`;
+}
+
+function formatUpdatedAt(updatedAt) {
+    const updatedDate = new Date(updatedAt);
+    const now = new Date();
+
+    const diffMilliseconds = now.getTime() - updatedDate.getTime();
+
+    const diffMinutes = Math.floor(diffMilliseconds / 1000 / 60);
+
+    if (diffMinutes < 1) {
+        return "Just now";
+    }
+
+    if (diffMinutes < 60) {
+        return `${diffMinutes} min ago`;
+    }
+
+    const diffHours = Math.floor(diffMinutes / 60);
+
+    if (diffHours < 24) {
+        return `${diffHours} hr ago`;
+    }
+
+    return updatedDate.toLocaleDateString();
+}
+
 function renderApp() {
     app.innerHTML = `
         <div class="app-layout">
@@ -89,6 +132,8 @@ function renderNoteList() {
         .map((note) => {
             const isSelected = note.id === selectedNoteId;
             const displayTitle = note.title.trim() || "Untitled";
+            const preview = getNotePreview(note.content);
+            const updatedAt = formatUpdatedAt(note.updatedAt);
 
             return `
                 <button
@@ -96,7 +141,12 @@ function renderNoteList() {
                     class="note-item ${isSelected ? "note-item--selected" : ""}"
                     data-note-id="${note.id}"
                 >
-                    <strong>${escapeHtml(displayTitle)}</strong>
+                    <div class="note-item__header">
+                        <strong>${escapeHtml(displayTitle)}</strong>
+                        <span class="note-item__time">${escapeHtml(updatedAt)}</span>
+                    </div>
+                    
+                    <p class="note-item__preview">${escapeHtml(preview)}</p>
                 </button>
             `;
         })
@@ -164,14 +214,11 @@ function init() {
     renderNoteList();
     renderEditor();
 
-    const newNoteButton =
-        document.querySelector("#new-note-button");
+    const newNoteButton = document.querySelector("#new-note-button");
 
-    const noteList =
-        document.querySelector("#note-list");
+    const noteList = document.querySelector("#note-list");
 
-    const editorPanel = 
-        document.querySelector("#editor-panel");
+    const editorPanel = document.querySelector("#editor-panel");
 
     newNoteButton.addEventListener("click", () => {
         const note = createNote();
@@ -183,8 +230,7 @@ function init() {
     });
 
     noteList.addEventListener("click", (event) => {
-        const noteItem =
-            event.target.closest(".note-item");
+        const noteItem = event.target.closest(".note-item");
 
         if (!noteItem) {
             return;
