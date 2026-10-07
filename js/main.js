@@ -116,7 +116,13 @@ function renderNoteList() {
 
 
     const notes = getAllNotes()
-        .filter((note) => !note.deleted);
+        .filter((note) => !note.deleted)
+        .sort((a, b) => {
+            if (a.pinned != b.pinned) {
+                return Number(b.pinned) - Number(a.pinned);
+            }
+            return new Date(b.updatedAt) - new Date(a.updatedAt);
+        });
 
     if (notes.length === 0) {
         noteList.innerHTML = `
@@ -142,8 +148,16 @@ function renderNoteList() {
                     data-note-id="${note.id}"
                 >
                     <div class="note-item__header">
-                        <strong>${escapeHtml(displayTitle)}</strong>
-                        <span class="note-item__time">${escapeHtml(updatedAt)}</span>
+                        <div class="note-item__title-wrap">
+                            ${note.pinned ? '<span class="note-item__pin" aria-label="Pinned">●</span>' : ""}
+
+                            <strong class="note-item__title">
+                                ${escapeHtml(displayTitle)}
+                            </strong>
+                        </div>
+                        <span class="note-item__time">
+                            ${escapeHtml(updatedAt)}
+                        </span>
                     </div>
                     
                     <p class="note-item__preview">${escapeHtml(preview)}</p>
@@ -187,8 +201,18 @@ function renderEditor() {
                     id="note-title"
                     class="editor-title"
                     type="text"
+                    placeholder="Untitled"
                     aria-label="Note title"
                 >
+
+                <button
+                    id="toggle-pin-button"
+                    class="editor-action-button"
+                    type="button"
+                    aria-pressed="${note.pinned}"
+                >
+                    ${note.pinned ? "Unpin" : "Pin"}
+                </button>
             </header>
 
             <textarea
@@ -267,6 +291,28 @@ function init() {
         });
 
         renderNoteList();
+    });
+
+    editorPanel.addEventListener("click", (event) => {
+        const pinButton =
+            event.target.closest("#toggle-pin-button");
+
+        if (!pinButton || !selectedNoteId) {
+            return;
+        }
+
+        const note = getNoteById(selectedNoteId);
+
+        if (!note) {
+            return;
+        }
+
+        updateNote(selectedNoteId, {
+            pinned: !note.pinned,
+        });
+
+        renderNoteList();
+        renderEditor();
     });
 }
 
