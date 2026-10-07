@@ -1231,6 +1231,68 @@ function init() {
         navigate(currentView, noteItem.dataset.noteId);
     });
 
+    editorPanel.addEventListener("paste", (event) => {
+        const editor = event.target.closest("#note-content.editor-rich");
+
+        if (!editor || !selectedNoteId || currentView === "trash") {
+            return;
+        }
+
+        const plainText = event.clipboardData?.getData("text/plain");
+
+        if (plainText === undefined) {
+            return;
+        }
+
+        const selection = window.getSelection();
+
+        if (!selection || selection.rangeCount === 0) {
+            return;
+        }
+
+        const range = selection.getRangeAt(0);
+
+        if (!editor.contains(range.commonAncestorContainer)) {
+            return;
+        }
+
+        event.preventDefault();
+        range.deleteContents();
+
+        const fragment = document.createDocumentFragment();
+        const lines = plainText.replace(/\r\n?/g, "\n").split("\n");
+        let lastNode = null;
+
+        lines.forEach((line, index) => {
+            if (index > 0) {
+                const breakElement = document.createElement("br");
+                fragment.append(breakElement);
+                lastNode = breakElement;
+            }
+
+            const textNode = document.createTextNode(line);
+            fragment.append(textNode);
+            lastNode = textNode;
+        });
+
+        range.insertNode(fragment);
+
+        if (lastNode) {
+            const newRange = document.createRange();
+
+            newRange.setStartAfter(lastNode);
+            newRange.collapse(true);
+
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+            savedEditorRange = newRange.cloneRange();
+        }
+
+        normalizeRichTextBlocks(editor);
+        persistRichContent();
+        updateToolbarState();
+    });
+
     editorPanel.addEventListener("input", (event) => {
         if (!selectedNoteId || currentView === "trash") {
             return;
