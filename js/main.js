@@ -68,6 +68,7 @@ function getNotePreview(note) {
     return `${normalizedContent.slice(0, maxLength)}...`;
 }
 
+
 const INLINE_FORMAT_TAGS = {
     bold: "strong",
     italic: "em",
@@ -80,18 +81,76 @@ const BLOCK_FORMAT_TAGS = {
     h3: "h3",
 };
 
-const BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3"]);
+const TEXT_BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3", "LI"]);
+const ROOT_BLOCK_TAG_NAMES = new Set(["P", "DIV", "H1", "H2", "H3", "UL", "OL"]);
+
+function getRichEditor() {
+    return document.querySelector("#note-content.editor-rich");
+}
 
 function findClosestTag(node, editor, tagName) {
     let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
     const normalizedTagName = tagName.toUpperCase();
+
     while (element && element !== editor) {
         if (element.tagName === normalizedTagName) {
             return element;
         }
+
         element = element.parentElement;
     }
+
     return null;
+}
+
+function getActiveEditorRange(editor) {
+    const selection = window.getSelection();
+
+    if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+
+        if (editor.contains(range.commonAncestorContainer)) {
+            return range;
+        }
+    }
+
+    if (savedEditorRange && editor.contains(savedEditorRange.commonAncestorContainer)) {
+        return savedEditorRange;
+    }
+
+    return null;
+}
+
+function saveEditorSelection() {
+    const editor = getRichEditor();
+    const selection = window.getSelection();
+
+    if (!editor || !selection || selection.rangeCount === 0) {
+        return;
+    }
+
+    const range = selection.getRangeAt(0);
+
+    if (!editor.contains(range.commonAncestorContainer)) {
+        return;
+    }
+
+    savedEditorRange = range.cloneRange();
+}
+
+function setSelectionToNodeContents(node, collapseToEnd = false) {
+    const selection = window.getSelection();
+    const range = document.createRange();
+
+    range.selectNodeContents(node);
+
+    if (collapseToEnd) {
+        range.collapse(false);
+    }
+
+    selection.removeAllRanges();
+    selection.addRange(range);
+    savedEditorRange = range.cloneRange();
 }
 
 function unwrapElement(element) {
@@ -104,9 +163,35 @@ function unwrapElement(element) {
     element.remove();
 }
 
-function unwrapElementAndRestoreSelection(element, range, selection, editor) {
-    const startMarker = document.createElement("span");
-    const endMarker = document.createElement("span");
+function wrapNodesBetweenMarkers(startMarker, endMarker, templateElement) {
+    const nodes = [];
+    let node = startMarker.nextSibling;
+
+    while (node && node !== endMarker) {
+        nodes.push(node);
+        node = node.nextSibling;
+    }
+
+    if (nodes.length === 0) {
+        return null;
+    }
+
+    const wrapper = templateElement.cloneNode(false);
+    endMarker.parentNode.insertBefore(wrapper, endMarker);
+    nodes.forEach((currentNode) => wrapper.append(currentNode));
+
+    return wrapper;
+}
+
+function removeInlineFormattingFromSelection(element, range, selection, editor) {
+    const outerStartMarker = document.createComment("format-start");
+    const outerEndMarker = document.createComment("format-end");
+    const startMarker = document.createComment("selection-start");
+    const endMarker = document.createComment("selection-end");
+    const parent = element.parentNode;
+
+    parent.insertBefore(outerStartMarker, element);
+    parent.insertBefore(outerEndMarker, element.nextSibling);
 
     const endRange = range.cloneRange();
     endRange.collapse(false);
@@ -118,6 +203,9 @@ function unwrapElementAndRestoreSelection(element, range, selection, editor) {
 
     unwrapElement(element);
 
+    wrapNodesBetweenMarkers(outerStartMarker, startMarker, element);
+    wrapNodesBetweenMarkers(endMarker, outerEndMarker, element);
+
     const newRange = document.createRange();
     newRange.setStartAfter(startMarker);
     newRange.setEndBefore(endMarker);
@@ -125,49 +213,54 @@ function unwrapElementAndRestoreSelection(element, range, selection, editor) {
     selection.removeAllRanges();
     selection.addRange(newRange);
 
+    outerStartMarker.remove();
+    outerEndMarker.remove();
     startMarker.remove();
     endMarker.remove();
+
     editor.normalize();
+    savedEditorRange = selection.getRangeAt(0).cloneRange();
+}
+
+function removeMatchingTags(root, tagName) {
+    const elements = Array.from(root.querySelectorAll(tagName)).reverse();
+    elements.forEach((element) => unwrapElement(element));
 }
 
 function toggleInlineFormatting(tagName) {
-    const editor = document.querySelector("#note-content.editor-rich");
+    const editor = getRichEditor();
 
     if (!editor) {
-        return;
+        return false;
+    }
+
+    const range = getActiveEditorRange(editor);
+
+    if (!range || range.collapsed) {
+        return false;
     }
 
     const selection = window.getSelection();
-
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        return;
-    }
-
-    const range = selection.getRangeAt(0);
-
-    if (!editor.contains(range.commonAncestorContainer)) {
-        return;
-    }
+    selection.removeAllRanges();
+    selection.addRange(range);
 
     const startElement = findClosestTag(range.startContainer, editor, tagName);
     const endElement = findClosestTag(range.endContainer, editor, tagName);
 
     if (startElement && startElement === endElement) {
-        unwrapElementAndRestoreSelection(startElement, range, selection, editor);
-        return;
+        removeInlineFormattingFromSelection(startElement, range, selection, editor);
+        return true;
     }
 
     const wrapper = document.createElement(tagName);
     const selectedContent = range.extractContents();
 
+    removeMatchingTags(selectedContent, tagName);
     wrapper.append(selectedContent);
     range.insertNode(wrapper);
 
-    selection.removeAllRanges();
-
-    const newRange = document.createRange();
-    newRange.selectNodeContents(wrapper);
-    selection.addRange(newRange);
+    setSelectionToNodeContents(wrapper);
+    return true;
 }
 
 function normalizeRichTextBlocks(editor) {
@@ -175,7 +268,7 @@ function normalizeRichTextBlocks(editor) {
     let paragraph = null;
 
     for (const node of nodes) {
-        if (node.nodeType === Node.ELEMENT_NODE && BLOCK_TAG_NAMES.has(node.tagName)) {
+        if (node.nodeType === Node.ELEMENT_NODE && ROOT_BLOCK_TAG_NAMES.has(node.tagName)) {
             paragraph = null;
             continue;
         }
@@ -202,28 +295,11 @@ function normalizeRichTextBlocks(editor) {
     }
 }
 
-function saveEditorSelection() {
-    const editor = document.querySelector("#note-content.editor-rich");
-    const selection = window.getSelection();
-
-    if (!editor || !selection || selection.rangeCount === 0) {
-        return;
-    }
-
-    const range = selection.getRangeAt(0);
-
-    if (!editor.contains(range.commonAncestorContainer)) {
-        return;
-    }
-
-    savedEditorRange = range.cloneRange();
-}
-
 function findClosestBlock(node, editor) {
     let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
 
     while (element && element !== editor) {
-        if (BLOCK_TAG_NAMES.has(element.tagName)) {
+        if (TEXT_BLOCK_TAG_NAMES.has(element.tagName)) {
             return element;
         }
 
@@ -236,26 +312,35 @@ function findClosestBlock(node, editor) {
 function replaceElementTag(element, tagName) {
     const replacement = document.createElement(tagName);
 
+    for (const attribute of element.attributes) {
+        replacement.setAttribute(attribute.name, attribute.value);
+    }
+
     while (element.firstChild) {
         replacement.append(element.firstChild);
     }
 
     element.replaceWith(replacement);
-
     return replacement;
 }
 
 function applyBlockFormatting(format) {
-    const editor = document.querySelector("#note-content.editor-rich");
+    const editor = getRichEditor();
     const tagName = BLOCK_FORMAT_TAGS[format];
 
-    if (!editor || !tagName || !savedEditorRange) {
+    if (!editor || !tagName) {
         return false;
     }
 
-    const block = findClosestBlock(savedEditorRange.startContainer, editor);
+    const range = getActiveEditorRange(editor);
 
-    if (!block) {
+    if (!range) {
+        return false;
+    }
+
+    const block = findClosestBlock(range.startContainer, editor);
+
+    if (!block || block.tagName === "LI") {
         return false;
     }
 
@@ -267,20 +352,292 @@ function applyBlockFormatting(format) {
     }
 
     const replacement = replaceElementTag(block, tagName);
-    const selection = window.getSelection();
-    const range = document.createRange();
-
-    range.selectNodeContents(replacement);
-    range.collapse(false);
-
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    savedEditorRange = range.cloneRange();
+    setSelectionToNodeContents(replacement, true);
     editor.focus();
 
     return true;
 }
+
+function unwrapListItemToParagraph(listItem) {
+    const list = listItem.parentElement;
+    const parent = list.parentElement;
+    const items = Array.from(list.children);
+    const itemIndex = items.indexOf(listItem);
+    const beforeItems = items.slice(0, itemIndex);
+    const afterItems = items.slice(itemIndex + 1);
+    const paragraph = document.createElement("p");
+
+    while (listItem.firstChild) {
+        paragraph.append(listItem.firstChild);
+    }
+
+    if (beforeItems.length > 0) {
+        const beforeList = document.createElement(list.tagName.toLowerCase());
+        beforeItems.forEach((item) => beforeList.append(item));
+        parent.insertBefore(beforeList, list);
+    }
+
+    parent.insertBefore(paragraph, list);
+
+    if (afterItems.length > 0) {
+        const afterList = document.createElement(list.tagName.toLowerCase());
+        afterItems.forEach((item) => afterList.append(item));
+        parent.insertBefore(afterList, list);
+    }
+
+    list.remove();
+    return paragraph;
+}
+
+function toggleListFormatting(listTagName) {
+    const editor = getRichEditor();
+
+    if (!editor) {
+        return false;
+    }
+
+    const range = getActiveEditorRange(editor);
+
+    if (!range) {
+        return false;
+    }
+
+    const listItem = findClosestTag(range.startContainer, editor, "li");
+
+    if (listItem) {
+        const list = listItem.parentElement;
+
+        if (!list || (list.tagName !== "UL" && list.tagName !== "OL")) {
+            return false;
+        }
+
+        if (list.tagName.toLowerCase() === listTagName) {
+            const paragraph = unwrapListItemToParagraph(listItem);
+            setSelectionToNodeContents(paragraph, true);
+        } else {
+            replaceElementTag(list, listTagName);
+            setSelectionToNodeContents(listItem, true);
+        }
+
+        editor.focus();
+        return true;
+    }
+
+    const block = findClosestBlock(range.startContainer, editor);
+
+    if (!block || block.tagName === "LI") {
+        return false;
+    }
+
+    const list = document.createElement(listTagName);
+    const newListItem = document.createElement("li");
+
+    while (block.firstChild) {
+        newListItem.append(block.firstChild);
+    }
+
+    list.append(newListItem);
+    block.replaceWith(list);
+
+    setSelectionToNodeContents(newListItem, true);
+    editor.focus();
+
+    return true;
+}
+
+function normalizeLinkUrl(value) {
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue) {
+        return null;
+    }
+
+    if (/^(https?:\/\/|mailto:)/i.test(trimmedValue)) {
+        return trimmedValue;
+    }
+
+    return `https://${trimmedValue}`;
+}
+
+function toggleLinkFormatting() {
+    const editor = getRichEditor();
+
+    if (!editor) {
+        return false;
+    }
+
+    const range = getActiveEditorRange(editor);
+
+    if (!range) {
+        return false;
+    }
+
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const startAnchor = findClosestTag(range.startContainer, editor, "a");
+    const endAnchor = findClosestTag(range.endContainer, editor, "a");
+
+    if (startAnchor && startAnchor === endAnchor) {
+        if (range.collapsed) {
+            const anchorRange = document.createRange();
+            anchorRange.selectNodeContents(startAnchor);
+            removeInlineFormattingFromSelection(startAnchor, anchorRange, selection, editor);
+        } else {
+            removeInlineFormattingFromSelection(startAnchor, range, selection, editor);
+        }
+
+        editor.focus();
+        return true;
+    }
+
+    const enteredUrl = window.prompt("Enter URL:", "https://");
+
+    if (enteredUrl === null) {
+        return false;
+    }
+
+    const href = normalizeLinkUrl(enteredUrl);
+
+    if (!href) {
+        return false;
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+
+    if (range.collapsed) {
+        anchor.textContent = enteredUrl.trim() || href;
+        range.insertNode(anchor);
+        setSelectionToNodeContents(anchor, true);
+    } else {
+        const selectedContent = range.extractContents();
+        removeMatchingTags(selectedContent, "a");
+        anchor.append(selectedContent);
+        range.insertNode(anchor);
+        setSelectionToNodeContents(anchor);
+    }
+
+    editor.focus();
+    return true;
+}
+
+function clearCurrentBlockFormatting() {
+    const editor = getRichEditor();
+
+    if (!editor) {
+        return false;
+    }
+
+    const range = getActiveEditorRange(editor);
+
+    if (!range) {
+        return false;
+    }
+
+    let block = findClosestBlock(range.startContainer, editor);
+
+    if (!block) {
+        return false;
+    }
+
+    const plainText = richTextToPlainText(block.innerHTML);
+
+    if (block.tagName === "LI") {
+        block = unwrapListItemToParagraph(block);
+    } else if (block.tagName !== "P") {
+        block = replaceElementTag(block, "p");
+    }
+
+    block.innerHTML = plainText ? escapeHtml(plainText).replace(/\n/g, "<br>") : "<br>";
+
+    setSelectionToNodeContents(block, true);
+    editor.focus();
+
+    return true;
+}
+
+function setToolbarButtonActive(button, active) {
+    button.classList.toggle("editor-toolbar__button--active", active);
+    button.setAttribute("aria-pressed", String(active));
+}
+
+function updateToolbarState() {
+    const editor = getRichEditor();
+    const toolbar = document.querySelector(".editor-toolbar");
+
+    if (!editor || !toolbar) {
+        return;
+    }
+
+    const range = getActiveEditorRange(editor);
+    const blockFormatSelect = toolbar.querySelector("[data-block-format]");
+    const formatButtons = toolbar.querySelectorAll("[data-format]");
+    const commandButtons = toolbar.querySelectorAll("[data-command]");
+
+    if (!range) {
+        blockFormatSelect.value = "normal";
+        formatButtons.forEach((button) => setToolbarButtonActive(button, false));
+        commandButtons.forEach((button) => {
+            if (button.dataset.command !== "clear-formatting") {
+                setToolbarButtonActive(button, false);
+            }
+        });
+        return;
+    }
+
+    const node = range.startContainer;
+    const block = findClosestBlock(node, editor);
+    const blockTagName = block?.tagName.toLowerCase();
+
+    blockFormatSelect.value = ["h1", "h2", "h3"].includes(blockTagName) ? blockTagName : "normal";
+
+    formatButtons.forEach((button) => {
+        const tagName = INLINE_FORMAT_TAGS[button.dataset.format];
+        const active = tagName ? Boolean(findClosestTag(node, editor, tagName)) : false;
+        setToolbarButtonActive(button, active);
+    });
+
+    commandButtons.forEach((button) => {
+        const command = button.dataset.command;
+        let active = false;
+
+        if (command === "unordered-list") {
+            active = Boolean(findClosestTag(node, editor, "ul"));
+        } else if (command === "ordered-list") {
+            active = Boolean(findClosestTag(node, editor, "ol"));
+        } else if (command === "link") {
+            active = Boolean(findClosestTag(node, editor, "a"));
+        }
+
+        if (command !== "clear-formatting") {
+            setToolbarButtonActive(button, active);
+        }
+    });
+}
+
+function persistRichContent() {
+    if (!selectedNoteId || currentView === "trash") {
+        return;
+    }
+
+    const contentInput = document.querySelector("#note-content");
+
+    if (!contentInput) {
+        return;
+    }
+
+    updateNote(selectedNoteId, {
+        content: contentInput.innerHTML,
+        mode: undefined,
+    });
+
+    renderNoteList();
+}
+
 
 function formatUpdatedAt(updatedAt) {
     const updatedDate = new Date(updatedAt);
@@ -585,6 +942,7 @@ function renderEditor() {
                                 class="editor-toolbar__button"
                                 data-format="bold"
                                 aria-label="Bold"
+                                aria-pressed="false"
                             >
                                 <strong>B</strong>
                             </button>
@@ -593,8 +951,46 @@ function renderEditor() {
                                 class="editor-toolbar__button"
                                 data-format="italic"
                                 aria-label="Italic"
+                                aria-pressed="false"
                             >
                                 <em>I</em>
+                            </button>
+                            <span class="editor-toolbar__separator" aria-hidden="true"></span>
+                            <button
+                                type="button"
+                                class="editor-toolbar__button"
+                                data-command="unordered-list"
+                                aria-label="Bulleted list"
+                                aria-pressed="false"
+                            >
+                                • List
+                            </button>
+                            <button
+                                type="button"
+                                class="editor-toolbar__button"
+                                data-command="ordered-list"
+                                aria-label="Numbered list"
+                                aria-pressed="false"
+                            >
+                                1. List
+                            </button>
+                            <button
+                                type="button"
+                                class="editor-toolbar__button"
+                                data-command="link"
+                                aria-label="Link"
+                                aria-pressed="false"
+                            >
+                                Link
+                            </button>
+                            <span class="editor-toolbar__separator" aria-hidden="true"></span>
+                            <button
+                                type="button"
+                                class="editor-toolbar__button"
+                                data-command="clear-formatting"
+                                aria-label="Clear formatting"
+                            >
+                                Clear
                             </button>
                         </div>
                     `
@@ -618,6 +1014,8 @@ function renderEditor() {
     titleInput.value = note.title;
     contentInput.innerHTML = editorContent;
     normalizeRichTextBlocks(contentInput);
+    savedEditorRange = null;
+    updateToolbarState();
 }
 
 function renderRoute() {
@@ -656,123 +1054,226 @@ function init() {
     renderApp();
     ensureDefaultRoute();
     renderRoute();
+
     const newNoteButton = document.querySelector("#new-note-button");
     const sidebarNavigation = document.querySelector(".sidebar-nav");
     const noteSearch = document.querySelector("#note-search");
     const noteList = document.querySelector("#note-list");
     const editorPanel = document.querySelector("#editor-panel");
+
     window.addEventListener("hashchange", () => {
         renderRoute();
     });
+
+    document.addEventListener("selectionchange", () => {
+        const editor = getRichEditor();
+        const selection = window.getSelection();
+
+        if (!editor || !selection || selection.rangeCount === 0) {
+            return;
+        }
+
+        const range = selection.getRangeAt(0);
+
+        if (!editor.contains(range.commonAncestorContainer)) {
+            return;
+        }
+
+        savedEditorRange = range.cloneRange();
+        updateToolbarState();
+    });
+
     newNoteButton.addEventListener("click", () => {
         const note = createNote();
         navigate("all", note.id);
     });
+
     sidebarNavigation.addEventListener("click", (event) => {
         const navigationItem = event.target.closest("[data-view]");
+
         if (!navigationItem) {
             return;
         }
+
         navigate(navigationItem.dataset.view);
     });
+
     noteSearch.addEventListener("input", (event) => {
         searchQuery = event.target.value;
+
         if (selectedNoteId) {
             navigate(currentView);
             return;
         }
+
         renderNoteList();
     });
+
     noteList.addEventListener("click", (event) => {
         const noteItem = event.target.closest(".note-item");
+
         if (!noteItem) {
             return;
         }
+
         navigate(currentView, noteItem.dataset.noteId);
     });
+
     editorPanel.addEventListener("input", (event) => {
         if (!selectedNoteId || currentView === "trash") {
             return;
         }
+
         if (event.target.id !== "note-title" && event.target.id !== "note-content") {
             return;
         }
+
         const note = getNoteById(selectedNoteId);
+
         if (!note) {
             return;
         }
+
         const titleInput = document.querySelector("#note-title");
         const contentInput = document.querySelector("#note-content");
+
+        if (event.target.id === "note-content") {
+            normalizeRichTextBlocks(contentInput);
+        }
+
         updateNote(selectedNoteId, {
             title: titleInput.value,
             content: contentInput.innerHTML,
             mode: undefined,
         });
+
         renderNoteList();
+
+        if (event.target.id === "note-content") {
+            saveEditorSelection();
+            updateToolbarState();
+        }
     });
+
     editorPanel.addEventListener("click", (event) => {
         if (!selectedNoteId) {
             return;
         }
+
+        const editorLink = event.target.closest("#note-content.editor-rich a");
+
+        if (editorLink) {
+            event.preventDefault();
+            return;
+        }
+
         const pinButton = event.target.closest("#toggle-pin-button");
         const trashButton = event.target.closest("#trash-note-button");
         const restoreButton = event.target.closest("#restore-note-button");
         const deleteButton = event.target.closest("#delete-note-button");
         const formatButton = event.target.closest("[data-format]");
+        const commandButton = event.target.closest("[data-command]");
+
         if (formatButton) {
             const note = getNoteById(selectedNoteId);
+
             if (!note || currentView === "trash") {
                 return;
             }
-            const format = formatButton.dataset.format;
-            const tagName = INLINE_FORMAT_TAGS[format];
+
+            const tagName = INLINE_FORMAT_TAGS[formatButton.dataset.format];
+
             if (!tagName) {
                 return;
             }
-            toggleInlineFormatting(tagName);
-            const contentInput = document.querySelector("#note-content");
-            updateNote(selectedNoteId, {
-                content: contentInput.innerHTML,
-                mode: undefined,
-            });
-            renderNoteList();
+
+            const changed = toggleInlineFormatting(tagName);
+
+            if (changed) {
+                persistRichContent();
+            }
+
+            saveEditorSelection();
+            updateToolbarState();
             return;
         }
+
+        if (commandButton) {
+            const note = getNoteById(selectedNoteId);
+
+            if (!note || currentView === "trash") {
+                return;
+            }
+
+            const command = commandButton.dataset.command;
+            let changed = false;
+
+            if (command === "unordered-list") {
+                changed = toggleListFormatting("ul");
+            } else if (command === "ordered-list") {
+                changed = toggleListFormatting("ol");
+            } else if (command === "link") {
+                changed = toggleLinkFormatting();
+            } else if (command === "clear-formatting") {
+                changed = clearCurrentBlockFormatting();
+            }
+
+            if (changed) {
+                persistRichContent();
+            }
+
+            saveEditorSelection();
+            updateToolbarState();
+            return;
+        }
+
         if (pinButton) {
             const note = getNoteById(selectedNoteId);
+
             if (!note) {
                 return;
             }
+
             const willBePinned = !note.pinned;
+
             updateNote(selectedNoteId, {
                 pinned: willBePinned,
             });
+
             if (currentView === "pinned" && !willBePinned) {
                 navigate("pinned");
                 return;
             }
+
             renderNoteList();
             renderEditor();
             return;
         }
+
         if (trashButton) {
             moveNoteToTrash(selectedNoteId);
             navigate(currentView);
             return;
         }
+
         if (restoreButton) {
             restoreNote(selectedNoteId);
             navigate("trash");
+            return;
         }
+
         if (deleteButton) {
             const confirmed = window.confirm("Delete this note permanently? This action cannot be undone.");
+
             if (!confirmed) {
                 return;
             }
+
             deleteNotePermanently(selectedNoteId);
             navigate("trash");
         }
     });
+
     editorPanel.addEventListener("change", (event) => {
         const blockFormatSelect = event.target.closest("[data-block-format]");
 
@@ -788,30 +1289,12 @@ function init() {
 
         const changed = applyBlockFormatting(blockFormatSelect.value);
 
-        if (!changed) {
-            return;
+        if (changed) {
+            persistRichContent();
         }
 
-        const contentInput = document.querySelector("#note-content");
-
-        updateNote(selectedNoteId, {
-            content: contentInput.innerHTML,
-            mode: undefined,
-        });
-
-        renderNoteList();
-    });
-
-    editorPanel.addEventListener("mouseup", (event) => {
-        if (event.target.closest("#note-content.editor-rich")) {
-            saveEditorSelection();
-        }
-    });
-
-    editorPanel.addEventListener("keyup", (event) => {
-        if (event.target.closest("#note-content.editor-rich")) {
-            saveEditorSelection();
-        }
+        saveEditorSelection();
+        updateToolbarState();
     });
 
     editorPanel.addEventListener("mousedown", (event) => {
@@ -822,12 +1305,13 @@ function init() {
             return;
         }
 
-        const formatButton = event.target.closest("[data-format]");
+        const toolbarButton = event.target.closest("[data-format], [data-command]");
 
-        if (!formatButton) {
+        if (!toolbarButton) {
             return;
         }
 
+        saveEditorSelection();
         event.preventDefault();
     });
 }
